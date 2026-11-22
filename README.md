@@ -1,5 +1,14 @@
 # DSH Team Board
 
+**简体中文** | [English](README.en.md)
+
+> [!IMPORTANT]
+> **从容地说出目标，让 AI 有条不紊地把它做好。**
+>
+> 我做 Team Board，是希望你能把心思放在真正想完成的事情上。AI 应当认真理解需求，推敲方案，把实现与验证一步步做扎实，交付让人读得懂、改得动、愿意继续维护的代码。
+>
+> 你负责目标和关键取舍，过程中的拆解、协作与检查，让 AI 多承担一些。
+
 [![CI](https://github.com/teh1592/dsh-team-board/actions/workflows/ci.yml/badge.svg)](https://github.com/teh1592/dsh-team-board/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 

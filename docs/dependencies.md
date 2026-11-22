@@ -1,5 +1,7 @@
 # 依赖与启用检查
 
+**简体中文** | [English](en/dependencies.md)
+
 Team Board 是 DSH 插件，需要在已有 DSH 运行环境中安装。本仓库发布插件自身的源码和安装包；DSH 官方服务、模型设置和可选 Agent Teams 组件由宿主管理。
 
 ## 按功能检查

@@ -1,5 +1,7 @@
 # 架构与状态模型
 
+**简体中文** | [English](en/architecture.md)
+
 DSH Team Board 保留历史任务板与 `@1` preset，并通过独立的 ReviewService 执行 `quick@2`、`standard@2` 评审和开发运行。操作入口见[操作指南](operations.md)，已验证环境及恢复边界见[兼容性说明](compatibility.md)。
 
 ## 架构图

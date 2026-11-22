@@ -48,8 +48,13 @@
     "docs/reuse-notes.md",
     "docs/practice-results.md",
     "docs/images/**",
+    "README.en.md",
+    "docs/en/**",
+    "docs/releases/**",
     "CONTRIBUTING.md",
-    "CHANGELOG.md"
+    "CONTRIBUTING.en.md",
+    "CHANGELOG.md",
+    "CHANGELOG.en.md"
   ],
   "scripts": {
     "test": "node tools/run-tests.mjs",

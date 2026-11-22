@@ -1,5 +1,7 @@
 # 兼容性与验证范围
 
+**简体中文** | [English](en/compatibility.md)
+
 本文记录 DSH Team Board 0.5 的已确认环境与验证结果。结果来自发布前的产品验证汇总；本文整理时未重新执行全量测试、打包或安装。模型试用另见[试用结果](practice-results.md)，操作方法见[操作指南](operations.md)。
 
 安装前先阅读[依赖与启用检查](dependencies.md)。新评审使用 subagents 与全新上下文 provider；旧团队任务板、会议和历史导入另需启用官方 Agent Teams。Team Board 的开关与官方 Agent Teams 的开关分别设置。
