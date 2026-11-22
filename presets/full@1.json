@@ -1,0 +1,12 @@
+{
+  "id": "full",
+  "version": 1,
+  "implemented": false,
+  "rank": 4,
+  "summary": "占位档：v0.1 提过名字（7 阶段），但从未定义内容。",
+  "declaresMissing": [
+    "整个档位未定义。而且 standard@1 本身就是 7 阶段 —— 「full 与 standard 的差别」没有任何文档说明过。",
+    "在差别被写清楚之前不编：编一个比 standard 多两个阶段的档位，会让「升档」变成一个没有语义的动作。"
+  ],
+  "stages": []
+}

@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { installReview } from '../../host/review-plugin.mjs';
+import { sessionIndexDefinition } from '../../host/dsh/session-index.mjs';
+import { testStore } from './helpers.mjs';
+import { createRun } from '../../src/review/state.mjs';
+test('session index uses committed tool and human command results and ignores unrelated events', () => {
+  const start = sessionIndexDefinition.init();
+  const same = sessionIndexDefinition.apply(start, { type: 'assistant/message', data: {} }); assert.equal(same, start);
+  const tool = sessionIndexDefinition.apply(start, { type: 'tool/result', data: { message: { content: [{ type: 'text', text: JSON.stringify({ runId: 'r1', projectRoot: 'C:/one' }) }] } } });
+  const command = sessionIndexDefinition.apply(tool, { type: 'command/done', data: { text: JSON.stringify({ runId: 'r2', projectRoot: 'C:/two' }) } });
+  assert.deepEqual(command, { r1: 'C:/one', r2: 'C:/two' });
+  assert.equal(sessionIndexDefinition.apply(command, { type: 'command/done', data: { text: 'plain text' } }), command);
+});
+test('fixed project root survives cwd changes and plugin restart; scoped child tools and all resources release', async (t) => {
+  const disk = await testStore(); t.after(() => disk.cleanup());
+  const run = createRun({ runId: 'existing-run', requestId: 'q', requestDigest: 'd', rootSessionId: 'root', projectRoot: disk.projectRoot, requirement: 'x' });
+  run.status = 'completed'; await disk.store.create(run);
+  const tools = []; const commands = []; const listeners = new Map(); let projectionDisposed = 0;
+  const root = { id: 'root', session: { marker: true }, followup() {} };
+  const agents = { get: () => root, roots: () => [root] };
+  const services = { fs: disk.fs, agents, subagents: {}, workingDirectory: { get: () => `${disk.projectRoot}/changed-directory` }, commands: { register(definition) { commands.push(definition); return () => {}; } }, sessionProjections: { async register() { return { stateOf: () => ({ 'existing-run': disk.projectRoot }), async dispose() { projectionDisposed++; } }; } } };
+  const ctx = { get: (name) => services[name], tools: { register(definition) { tools.push(definition); return () => {}; } }, on(name, handler) { listeners.set(name, handler); return () => listeners.delete(name); } };
+  const dispose = installReview(ctx);
+  const status = tools.find((tool) => tool.name === 'review_status');
+  const value = await status.execute({ runId: 'existing-run' }, { agent: root });
+  assert.equal(value.runId, 'existing-run'); assert.equal(value.projectRoot, disk.projectRoot);
+  assert.equal(commands[0].name, 'review');
+  const listed = await commands[0].handler({ agent: root, commandId: 'list', rawInput: 'request {"action":"list"}' });
+  assert.equal(listed.kind, 'success', listed.text); assert.equal(JSON.parse(listed.text).items[0].runId, 'existing-run');
+  await dispose(); assert.equal(projectionDisposed, 1); assert.equal(listeners.size, 0);
+});

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "source": "review-plugin-development-plan.md sections 6-9 and 12; existing project gates",
+  "coverage": "首批已定义条目，22条完整关切随历史材料整理补入",
+  "concerns": [
+    { "id": "requirement", "text": "目标、已有材料和完成条件具体且一致。", "appliesTo": ["intake", "review"], "check": "逐条列出验收条件和需要用户决定的事项。" },
+    { "id": "interface", "text": "实际接口、错误和取消行为有依据。", "appliesTo": ["review"], "check": "检查公开合约，必要时运行固定技术试验。" },
+    { "id": "recovery", "text": "中断、重复请求和迟到输出能正确处理。", "appliesTo": ["review", "decide"], "check": "列出中断恢复、去重和旧版本结果测试。" },
+    { "id": "maintenance", "text": "改动按职责组织，复用既有代码，维护成本适合任务。", "appliesTo": ["review"], "check": "指出影响的接口、依赖、测试和写入范围。" },
+    { "id": "acceptance", "text": "每项采纳意见有实施要求与可执行检查条件。", "appliesTo": ["decide"], "check": "检查 finding → decision → task 与检查条件的关联。" }
+  ]
+}

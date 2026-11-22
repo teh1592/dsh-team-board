@@ -1,0 +1,58 @@
+{
+  "id": "lite",
+  "version": 1,
+  "implemented": true,
+  "rank": 2,
+  "summary": "四阶段轻档。无独立红队、无客户签收 —— 这两件事的代价由人自己承担，账本上如实标注，不假装与 standard 同质。",
+  "declaresMissing": [
+    "无独立红队：红队职责折进 design 的 killScenarios（门槛 ≥2，且必填）",
+    "无客户签收：verify 通过即视为可交付，签收这一步不存在"
+  ],
+  "stages": [
+    {
+      "id": "challenge",
+      "order": 1,
+      "role": "critic",
+      "kind": "proposal",
+      "mustProduce": ["questions"],
+      "blind": true,
+      "gate": "E_NO_CHALLENGE",
+      "withheld": [],
+      "why": "轻档也不能省掉「先砍需求」—— 省掉它，后面三个阶段全建在没被质疑过的需求上。"
+    },
+    {
+      "id": "confirm",
+      "order": 2,
+      "role": "client",
+      "kind": "proposal",
+      "mustProduce": ["requirements", "answered"],
+      "blind": false,
+      "gate": "E_QUESTIONS_UNANSWERED",
+      "withheld": [],
+      "why": "同 standard。"
+    },
+    {
+      "id": "design",
+      "order": 3,
+      "role": "architect",
+      "kind": "proposal",
+      "mustProduce": ["decisions", "killScenarios"],
+      "minCount": { "killScenarios": 2 },
+      "blind": false,
+      "gate": "E_NO_KILL_SCENARIO",
+      "withheld": [],
+      "why": "killScenarios 在轻档里是**必填**、门槛 ≥2（落在 minCount）。把红队折进出方案的人身上是有代价的：自己砍自己，独立性最弱。这个代价写在 declaresMissing 里，不藏。"
+    },
+    {
+      "id": "verify",
+      "order": 4,
+      "role": "qa",
+      "kind": "review",
+      "mustProduce": ["verdict", "findings"],
+      "blind": true,
+      "gate": "E_NO_PASSING_REVIEW",
+      "withheld": ["design.reasoning"],
+      "why": "轻档唯一保留的盲评。它还能盲，因为 qa 与 design 是不同的人。"
+    }
+  ]
+}

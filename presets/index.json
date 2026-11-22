@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "comment": "预设注册表。加一档 = 加一个文件 + 在这里登记一行。加载不到一律 E_PRESET_NOT_FOUND，绝不回退默认档。",
+  "presets": [
+    {
+      "id": "hotfix",
+      "version": 1,
+      "rank": 1,
+      "implemented": false,
+      "file": "hotfix@1.json",
+      "note": "只有名字，没有任何文档定义过它的阶段。implemented:false 是为了让 E_PRESET_NOT_IMPLEMENTED 有话可说，而不是凭猜测编两步出来。"
+    },
+    {
+      "id": "lite",
+      "version": 1,
+      "rank": 2,
+      "implemented": true,
+      "file": "lite@1.json",
+      "note": "真档（4 阶段）。明确无独立红队、无客户签收 —— 账本按档位分区展示，不假装与 standard 同质。"
+    },
+    {
+      "id": "standard",
+      "version": 1,
+      "rank": 3,
+      "implemented": true,
+      "file": "standard@1.json",
+      "note": "真档（7 阶段）。方案 v1.0 §2。"
+    },
+    {
+      "id": "full",
+      "version": 1,
+      "rank": 4,
+      "implemented": false,
+      "file": "full@1.json",
+      "note": "占位。v0.1 提过名字（7 阶段）但从未定义内容，且 standard@1 本身就是 7 阶段 —— 两者的差别没有任何文档说明过。不编。"
+    }
+  ]
+}

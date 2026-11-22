@@ -1,0 +1,88 @@
+{
+  "id": "standard",
+  "version": 1,
+  "implemented": true,
+  "rank": 3,
+  "summary": "七阶段标准档：反方先砍需求 → 客户定需求 → 架构出决策 → 红队砍方案 → 实现 → 独立验证 → 客户签收。",
+  "declaresMissing": [],
+  "stages": [
+    {
+      "id": "challenge",
+      "order": 1,
+      "role": "critic",
+      "kind": "proposal",
+      "mustProduce": ["questions", "claim"],
+      "blind": true,
+      "gate": "E_NO_CHALLENGE",
+      "withheld": [],
+      "why": "反方先问，需求才定得清 —— 需求不是提需求的人一个人说了算。"
+    },
+    {
+      "id": "confirm",
+      "order": 2,
+      "role": "client",
+      "kind": "proposal",
+      "mustProduce": ["requirements", "answered"],
+      "blind": false,
+      "gate": "E_QUESTIONS_UNANSWERED",
+      "withheld": [],
+      "why": "客户逐条答复反方提出的问题。没答复的问题不许带进下一阶段。"
+    },
+    {
+      "id": "design",
+      "order": 3,
+      "role": "architect",
+      "kind": "proposal",
+      "mustProduce": ["decisions", "claim"],
+      "blind": false,
+      "gate": "E_PROPOSAL_UNREVIEWED",
+      "withheld": [],
+      "why": "出方案的人必须留一张可被逐条吵的决策清单。"
+    },
+    {
+      "id": "redteam",
+      "order": 4,
+      "role": "critic",
+      "kind": "proposal",
+      "mustProduce": ["killScenarios"],
+      "minCount": { "killScenarios": 3 },
+      "blind": true,
+      "gate": "E_NO_KILL_SCENARIO",
+      "withheld": ["design.decisions", "design.reasoning"],
+      "why": "砍方案不能由出方案的人自己砍（那是 E_SELF_REVIEW）。红队只拿到 design 的 claim，看不到它怎么想出来的。门槛 ≥3 落在 minCount 里 —— 凑数在这条上最容易发生，写 3 条软的在门禁上和写 3 条硬的一模一样。"
+    },
+    {
+      "id": "build",
+      "order": 5,
+      "role": "dev",
+      "kind": "implementation",
+      "mustProduce": ["changed"],
+      "blind": false,
+      "gate": "E_MEETING_MISSING",
+      "withheld": ["redteam.killScenarios"],
+      "why": "做活的人按 decisions 动手，但不许看见红队的原文 —— 否则他会照着测试写实现。"
+    },
+    {
+      "id": "verify",
+      "order": 6,
+      "role": "qa",
+      "kind": "review",
+      "mustProduce": ["verdict", "findings"],
+      "blind": true,
+      "gate": "E_NO_PASSING_REVIEW",
+      "withheld": ["design.reasoning"],
+      "why": "验「做对没有」。盲是为了不让 qa 被设计者的理由说服。"
+    },
+    {
+      "id": "signoff",
+      "order": 7,
+      "role": "client",
+      "kind": "review",
+      "mustProduce": ["decision"],
+      "blind": true,
+      "gate": "E_NO_SIGNOFF",
+      "withheld": ["design", "build", "verify"],
+      "why": "签「要不要」。客户必须记得自己 confirm 过的 requirements，但绝不能看实现细节和测试结论 —— 否则就不是盲签收。这是全表最微妙的一行。"
+    }
+  ]
+}

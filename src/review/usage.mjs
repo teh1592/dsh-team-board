@@ -1,0 +1,10 @@
+const elapsed = (start, end) => {
+  const value = Date.parse(end) - Date.parse(start);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+};
+export function usageSummary(run, observed = new Map()) {
+  const executions = run.executions.map((execution) => ({ executionId: execution.executionId, childSessionId: execution.childSessionId ?? null, provider: execution.provider ?? null, stageId: execution.stageId, workStatus: execution.workStatus, applicability: execution.applicability, startedAt: execution.startedAt, endedAt: execution.endedAt ?? null, elapsedMs: execution.endedAt ? elapsed(execution.startedAt, execution.endedAt) : null, tokens: observed.get(execution.executionId)?.tokens ?? null, tokenStatus: observed.get(execution.executionId) ? 'observed' : 'unknown', source: observed.get(execution.executionId)?.source ?? null }));
+  const known = executions.filter((entry) => entry.tokens);
+  const tokenTotal = (field) => known.length === executions.length && executions.length > 0 && known.every((entry) => Number.isSafeInteger(entry.tokens[field])) ? known.reduce((sum, entry) => sum + entry.tokens[field], 0) : null;
+  return { elapsedMs: ['completed', 'cancelled'].includes(run.status) ? elapsed(run.createdAt, run.updatedAt) : null, elapsedSource: 'run.createdAt/run.updatedAt', observedExecutionCount: known.length, executionCount: executions.length, inputTokens: tokenTotal('inputTokens'), outputTokens: tokenTotal('outputTokens'), totalTokens: tokenTotal('totalTokens'), tokenStatus: known.length === executions.length && executions.length > 0 ? 'observed' : 'unknown', reworkCount: Number.isSafeInteger(run.rework?.count) ? run.rework.count : null, resolvedFindings: run.findings.filter((finding) => finding.status === 'resolved').map((finding) => ({ id: finding.id, origin: finding.origin ?? 'unknown', sourceExecutionId: finding.sourceExecutionId, resolvedByExecutionId: finding.resolvedByExecutionId ?? null })), humanHandlingMs: null, humanHandlingStatus: 'unknown', executions };
+}

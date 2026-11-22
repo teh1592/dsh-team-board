@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="评审运行与团队台账">
+  <rect x="4" y="8" width="56" height="48" rx="9" fill="#16232f"/>
+  <rect x="10" y="15.5" width="44" height="10" rx="3.5" fill="#24553f"/>
+  <path d="M13 20.5l1.8 1.8 3.3-3.6" fill="none" stroke="#7ee2a8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="21.5" y="18.5" width="27" height="4" rx="2" fill="#d5eee1"/>
+  <rect x="10" y="28" width="44" height="10" rx="3.5" fill="#2c3d4d"/>
+  <circle cx="15.5" cy="33" r="2.4" fill="#9fb3c8"/>
+  <rect x="21.5" y="31" width="20" height="4" rx="2" fill="#c8d6e3"/>
+  <rect x="10" y="40.5" width="44" height="10" rx="3.5" fill="#2c3d4d"/>
+  <circle cx="15.5" cy="45.5" r="2.4" fill="#e2b04a"/>
+  <rect x="21.5" y="43.5" width="24" height="4" rx="2" fill="#c8d6e3"/>
+</svg>

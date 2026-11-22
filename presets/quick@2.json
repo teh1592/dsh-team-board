@@ -1,0 +1,13 @@
+{
+  "id": "quick",
+  "version": 2,
+  "schemaVersion": 1,
+  "summary": "需求理解后形成决议，实施与独立验证顺序执行。",
+  "stages": [
+    { "id": "intake", "roles": ["lead"], "dependsOn": [], "fresh": true },
+    { "id": "decide", "roles": ["lead"], "dependsOn": ["intake"], "fresh": true },
+    { "id": "build", "roles": ["developer"], "dependsOn": ["decide"], "fresh": true },
+    { "id": "verify", "roles": ["verifier"], "dependsOn": ["build"], "fresh": true },
+    { "id": "report", "roles": [], "dependsOn": ["verify"], "fresh": false }
+  ]
+}

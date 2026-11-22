@@ -1,0 +1,14 @@
+{
+  "id": "standard",
+  "version": 2,
+  "schemaVersion": 1,
+  "summary": "架构与测试维护两位评审分别在新会话提出意见，再形成决议与实施要求。",
+  "stages": [
+    { "id": "intake", "roles": ["lead"], "dependsOn": [], "fresh": true },
+    { "id": "review", "roles": ["architecture", "test-maintenance"], "dependsOn": ["intake"], "fresh": true },
+    { "id": "decide", "roles": ["lead"], "dependsOn": ["review"], "fresh": true },
+    { "id": "build", "roles": ["developer"], "dependsOn": ["decide"], "fresh": true },
+    { "id": "verify", "roles": ["verifier"], "dependsOn": ["build"], "fresh": true },
+    { "id": "report", "roles": [], "dependsOn": ["verify"], "fresh": false }
+  ]
+}

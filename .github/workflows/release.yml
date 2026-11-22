@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag, for example v0.5.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; const p = JSON.parse(fs.readFileSync("package.json", "utf8")); if (process.env.RELEASE_TAG !== `v${p.version}`) throw new Error("Tag and package version differ");'
+          git rev-parse --verify "refs/tags/$RELEASE_TAG"
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run typecheck
+      - run: node tools/build-client.mjs --check
+      - run: npm run validate-package
+      - name: Pack and hash
+        id: pack
+        run: |
+          archive=$(npm pack --ignore-scripts --silent)
+          sha256sum "$archive" > SHA256SUMS.txt
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          ARCHIVE: ${{ steps.pack.outputs.archive }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release already exists; leave its assets unchanged."
+          else
+            gh release create "$RELEASE_TAG" "$ARCHIVE" SHA256SUMS.txt --verify-tag --title "Team Board $RELEASE_TAG" --notes-file docs/releases/0.5.0.md
+          fi

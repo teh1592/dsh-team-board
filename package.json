@@ -1,0 +1,81 @@
+{
+  "name": "@local/team-board",
+  "version": "0.5.0",
+  "private": true,
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/teh1592/dsh-team-board.git" },
+  "homepage": "https://github.com/teh1592/dsh-team-board#readme",
+  "bugs": { "url": "https://github.com/teh1592/dsh-team-board/issues" },
+  "engines": { "node": ">=22" },
+  "type": "module",
+  "description": "在团队台账中启动与管理评审、开发和定向返工，查看角色意见、任务、机器检查及报告，支持需求修订、历史导入与恢复。",
+  "exports": {
+    ".": "./host/index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "host/index.js",
+    "host/meeting.js",
+    "client.js",
+    "client/**",
+    "tools/build-client.mjs",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "src/board.mjs",
+    "src/adapter.mjs",
+    "src/roles.mjs",
+    "src/delivery.mjs",
+    "src/contract.mjs",
+    "src/gates.mjs",
+    "src/ledger.mjs",
+    "src/preset.mjs",
+    "src/resume.mjs",
+    "src/meeting.mjs",
+    "src/codes.mjs",
+    "src/artifact.mjs",
+    "src/agentpool.mjs",
+    "presets/*.json",
+    "host/**",
+    "src/review/**",
+    "concerns/*.json",
+    "docs/architecture.md",
+    "docs/operations.md",
+    "docs/compatibility.md",
+    "docs/reuse-notes.md",
+    "docs/practice-results.md",
+    "docs/images/**",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node tools/run-tests.mjs",
+    "test:review": "node tools/run-tests.mjs review integration",
+    "build:client": "node tools/build-client.mjs",
+    "typecheck": "tsc -p tsconfig.review.json",
+    "validate-package": "node tools/validate-package.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer"
+      ]
+    }
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}
