@@ -1,6 +1,6 @@
 # 评审与开发操作指南
 
-在团队台账的原有开关打开后，模型可使用以下五个公开工具。本文说明已启用插件的操作，不提供未经核实的 CLI 安装命令。运行结构见[架构说明](architecture.md)，宿主环境与验证范围见[兼容性说明](compatibility.md)。
+在 Team Board 的开关打开、DSH 运行依赖就绪后，模型可使用以下五个公开工具。新流程要求 subagents 和全新上下文 provider；旧团队任务板、会议与历史导入还需官方 Agent Teams。两个功能开关分别设置，安装前先阅读[依赖与启用检查](dependencies.md)。运行结构见[架构说明](architecture.md)，宿主环境与验证范围见[兼容性说明](compatibility.md)。
 
 | 工具 | 用途 |
 |---|---|

@@ -43,17 +43,21 @@ flowchart LR
 
 - DeepSeek Harness：已在 **0.2.2-rc.1** 验证。
 - Node.js：22 或更新版本，实际宿主联调使用 **24.22.3**。
-- DSH 需要具备公开的 Agent、subagent、文件系统和会话查询服务；开发流程还需要 subprocess 服务。
+- 新评审需要 DSH 的 Agent、文件系统、工作目录和 subagents 服务，至少启用一个全新上下文 provider，推荐官方 `spawn`；实施检查还需要 subprocess。
+- 会话查询用于中断后的子结果回收和用量来源。旧团队任务板、会议和历史导入另需启用官方 **Agent Teams（智能体团队）**。
 - 模型配置沿用 DSH 的设置。本项目不包含模型账号或 API key。
+
+**Team Board 开关与官方 Agent Teams 开关是两项设置。** 只使用新 `review/develop` 流程时可仅启用 subagents；使用完整旧团队功能时还需 Agent Teams。官方组件由 DSH 安装和启用，npm 依赖由插件管理器解析安装。详见[依赖与启用检查](docs/dependencies.md)。
 
 ## 安装
 
 ### 从 Release 安装
 
-1. 到 [Releases](https://github.com/teh1592/dsh-team-board/releases) 下载 `local-team-board-0.5.0.tgz`。
-2. 在 DSH 中让插件管理工具执行 `install_bundle`，`target` 指向下载包的本地绝对路径。也可以通过 Plugin Manager 的安装入口安装该包。
-3. 确认安装结果为 `application: applied`，并检查返回的 warnings。
-4. 打开会话中的团队台账页签，启用插件开关，使用上方的评审与开发运行区。
+1. 先按[依赖说明](docs/dependencies.md)确认 DSH 的 subagents、全新上下文 `spawn` provider 和所需功能已启用；使用旧团队功能时另外启用官方 Agent Teams。
+2. 到 [Releases](https://github.com/teh1592/dsh-team-board/releases) 下载 `local-team-board-0.5.0.tgz`。
+3. 在 DSH 中让插件管理工具执行 `install_bundle`，`target` 指向下载包的本地绝对路径。也可以通过 Plugin Manager 的安装入口安装该包。
+4. 确认安装结果为 `application: applied`，并检查返回的 warnings。
+5. 打开会话中的团队台账页签，启用插件开关，使用上方的评审与开发运行区。
 
 给 DSH 的示例请求：
 
@@ -149,6 +153,7 @@ npm pack --ignore-scripts
 
 ## 文档
 
+- [依赖与启用检查](docs/dependencies.md)：subagents、spawn、Agent Teams 与两个开关的区别。
 - [操作说明](docs/operations.md)：启动、检查、暂停恢复、修订、历史导入。
 - [架构说明](docs/architecture.md)：状态协议、模块和资源生命周期。
 - [兼容与验证](docs/compatibility.md)：已验证环境及限制。

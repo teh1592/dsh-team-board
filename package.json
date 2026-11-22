@@ -42,6 +42,7 @@
     "src/review/**",
     "concerns/*.json",
     "docs/architecture.md",
+    "docs/dependencies.md",
     "docs/operations.md",
     "docs/compatibility.md",
     "docs/reuse-notes.md",
