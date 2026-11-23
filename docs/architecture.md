@@ -2,7 +2,7 @@
 
 **简体中文** | [English](en/architecture.md)
 
-DSH Team Board 保留历史任务板与 `@1` preset，并通过独立的 ReviewService 执行 `quick@2`、`standard@2` 评审和开发运行。操作入口见[操作指南](operations.md)，已验证环境及恢复边界见[兼容性说明](compatibility.md)。
+DSH Team Board 通过 ReviewService 执行 `quick@2`、`standard@2` 评审和开发运行。操作入口见[操作指南](operations.md)，已验证环境及恢复边界见[兼容性说明](compatibility.md)。
 
 ## 架构图
 
@@ -69,10 +69,10 @@ build、verify 的 `resolvedFindingIds` 只用于输入 `pendingVerificationFind
 
 ## 页面、历史与用量
 
-页面在原 `conversation.view/team-board/order40` 中增加运行区，保留旧任务板和用户开关。构建脚本将页面与 view-model 内联到 client.js，使用宿主 React 和主题 tokens。
+页面在 `conversation.view/team-board/order40` 中展示评审与开发运行，使用总览、讨论、任务和结果四个页签。开关只读取 enabled。构建脚本将页面、请求状态、样式和文案与 view-model 内联到 client.js，使用宿主 React 和主题 tokens。
 
 认证 Fetch 路由经过精确根会话与 owner 检查后调用公开 `commands.execute`，与模型工具使用同一 ReviewService。页面用 AbortController 和会话、运行、分区代次避免旧响应覆盖新页面。写入期间锁定按钮，重复投递保持 operationId，revision 冲突保留草稿。
 
-页面列表、详情和历史读取不调用 recover/kick。列表遍历当前目录与 session-index 中的项目，并按 rootSessionId 过滤。显式导入历史任务会创建新 run，保存 provenance 和原文材料，来源任务保持只读。
+页面列表、详情和运行历史读取不调用 recover/kick。列表遍历当前目录与 session-index 中的项目，并按 rootSessionId 过滤。
 
 usage 从子会话已提交的 assistant/message.data.usage 汇总 token，并保留来源事件序号；时间和返工次数来自已保存状态。缺失字段保留 null/unknown。实际试用的完整性和比较限制见[试用结果](practice-results.md)。

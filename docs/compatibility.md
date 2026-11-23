@@ -4,7 +4,7 @@
 
 本文记录 DSH Team Board 0.5 的已确认环境与验证结果。结果来自发布前的产品验证汇总；本文整理时未重新执行全量测试、打包或安装。模型试用另见[试用结果](practice-results.md)，操作方法见[操作指南](operations.md)。
 
-安装前先阅读[依赖与启用检查](dependencies.md)。新评审使用 subagents 与全新上下文 provider；旧团队任务板、会议和历史导入另需启用官方 Agent Teams。Team Board 的开关与官方 Agent Teams 的开关分别设置。
+当前 0.5.1-rc.2 的安装要求见[依赖与启用](dependencies.md)：评审与开发使用 subagents 和全新上下文 provider。下文保留 0.5.0 的历史验证记录。
 
 ## 已验证环境
 
@@ -64,8 +64,8 @@ node tools/probe-review-page.mjs "<DSH_HOME>"
 
 升级或回退前先暂停并备份 `.review/` 数据。schema 版本相同也不能据此假定任意降级安全，目标版本需能读取实际使用的可选字段与来源数据。
 
-## 界面验收边界
+## 0.5.0 界面验收记录
 
-实际 client.js 模块加载、`conversation.view/team-board/order40` 注册、旧任务板与运行区共存已有验证；真实 Client Slot 状态为 active。源码使用主题 tokens，中英文 locale 同步。
+0.5.0 的 client.js 模块加载和 `conversation.view/team-board/order40` 注册已有验证，当时 Client Slot 状态为 active。0.5.1-rc.2 使用总览、讨论、任务、结果四个页签。源码使用主题 tokens，中英文 locale 同步。
 
 本次验证没有屏幕或浏览器操作。浅色与深色主题的实际观感、布局、溢出和交互视觉表现仍需人工检查；Client Slot active 和模块注册成功只确认接入状态。

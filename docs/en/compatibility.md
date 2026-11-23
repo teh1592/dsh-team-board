@@ -4,7 +4,7 @@
 
 This document records the confirmed environment and validation results for DSH Team Board 0.5. The results come from the pre-release product validation summary; the full test suite, packaging, and installation were not rerun when this document was prepared. For model trials, see [Trial Results](practice-results.md). For usage instructions, see the [Operations Guide](operations.md).
 
-Before installing, read [Dependencies and Enablement Checks](dependencies.md). New review runs use subagents and a fresh-context provider. The legacy team task board, meetings, and historical imports also require the official Agent Teams feature to be enabled. Team Board and the official Agent Teams feature have separate enablement settings.
+For the current 0.5.1-rc.2 requirements, see [Dependencies and setup](dependencies.md). Reviews and development use subagents and a fresh-context provider. The sections below retain the historical validation record for 0.5.0.
 
 ## Validated Environment
 
@@ -64,8 +64,8 @@ In 0.5, the build and verify schemas make `resolvedFindingIds` optional. Prompts
 
 Before upgrading or rolling back, pause runs and back up the `.review/` data. A shared schema version does not establish that an arbitrary downgrade is safe: the target version must be able to read the optional fields and provenance data actually in use.
 
-## UI Acceptance Scope
+## 0.5.0 UI validation record
 
-Loading of the actual client.js module, registration of `conversation.view/team-board/order40`, and coexistence of the legacy task board with the run area have been validated. The actual Client Slot status is active. The source uses theme tokens, and the Chinese and English locales are kept in sync.
+For 0.5.0, loading of client.js and registration of `conversation.view/team-board/order40` were validated; the Client Slot was active. Version 0.5.1-rc.2 uses Overview, Discussion, Tasks, and Results tabs. The source uses theme tokens, and the Chinese and English locales are kept in sync.
 
 This validation involved no screen or browser operations. The actual appearance, layout, overflow, and visual behavior of interactions in light and dark themes still require manual inspection. An active Client Slot and successful module registration confirm only the integration status.
