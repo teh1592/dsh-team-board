@@ -2,6 +2,22 @@
 
 [English README](README.en.md) | [Chinese original](CHANGELOG.md)
 
+## 0.5.1-rc.2 — Candidate
+
+- Keep only review and development runs in the page; remove Agent Teams views and legacy team-task import.
+- Read the plugin switch without querying team tasks, members, or role records, including when enabled.
+- Shorten the Chinese and English dependency guides to minimum requirements and three setup steps.
+
+## 0.5.1-rc.1 — Candidate
+
+- Replace the stacked panels with one Overview, Discussion, Tasks, and Results interface and on-demand details.
+- Use one navigation for runs and the current session team while preserving their actual data sources and existing actions.
+- Connect findings, decisions, and tasks through recorded IDs and preserve each check execution's identity.
+- Isolate drafts, requests, and late responses by context; retry writes with their original operation identities.
+- Correct impact revisions that reused superseded decisions, retaining previous questions, answers, and reports.
+
+This candidate is for review and trial. Publication is a separate step.
+
 ## 0.5.0 — 2026-11-22
 
 First GitHub source release, including the previously completed review and development workflows.

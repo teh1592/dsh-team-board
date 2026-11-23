@@ -1,6 +1,6 @@
 {
   "name": "@local/team-board",
-  "version": "0.5.0",
+  "version": "0.5.1-rc.2",
   "private": true,
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/teh1592/dsh-team-board.git" },
@@ -8,7 +8,7 @@
   "bugs": { "url": "https://github.com/teh1592/dsh-team-board/issues" },
   "engines": { "node": ">=22" },
   "type": "module",
-  "description": "在团队台账中启动与管理评审、开发和定向返工，查看角色意见、任务、机器检查及报告，支持需求修订、历史导入与恢复。",
+  "description": "启动与管理评审、开发和定向返工，查看意见、任务、机器检查及报告，支持需求修订与中断恢复。",
   "exports": {
     ".": "./host/index.js",
     "./client": "./client.js",

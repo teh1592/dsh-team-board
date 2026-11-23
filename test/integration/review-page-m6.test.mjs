@@ -10,14 +10,15 @@ import { decodeReviewResponse, reviewViewModel, createReviewRequestGate } from '
 import { testStore, automaticAgents } from './helpers.mjs';
 import { DshAgentRunner } from '../../host/dsh/agent-runner.mjs';
 import { usageSummary } from '../../src/review/usage.mjs';
-async function fixture(t) {
+import { createBoardRequestState } from '../../client/request-state.mjs';
+async function fixture(t, { legacyHistory = true } = {}) {
   const disk = await testStore(); const runner = automaticAgents();
   const service = new ReviewService({ store: disk.store, agentRunner: runner });
   t.after(async () => { await service.dispose(); await disk.cleanup(); });
   let command; let route; let released = 0; const resolutions = []; const root = { id: 'root' }; const foreign = { id: 'foreign' }; const child = { id: 'child' };
   const tasks = [{ id: 'task-1', revision: 4, subject: 'Legacy task', description: 'Historical evidence', status: 'completed', writeScopes: ['src/**'] }];
   const commands = { register(definition) { command = definition; return () => { command = undefined; }; }, async execute(agent, line, attachments, signal) { assert.deepEqual(attachments, []); return { commandId: 'command-real-result', result: await command.handler({ agent, commandId: 'command-real-result', signal, rawInput: line.slice('/review '.length) }) }; } };
-  registerReviewCommand(commands, async (_agent, _runId, options) => { resolutions.push(options); return service; }, { readHistory: createHistoryReader({ listTasks: () => structuredClone(tasks) }) });
+  registerReviewCommand(commands, async (_agent, _runId, options) => { resolutions.push(options); return service; }, legacyHistory ? { readHistory: createHistoryReader({ listTasks: () => structuredClone(tasks) }) } : { readHistory: undefined });
   const connection = { admit: () => ({ peer: { principal: { kind: 'owner' } } }), fetch: { register(definition) { route = definition; return async () => { released++; }; } } };
   const disposeRoute = registerReviewRoute({ get: () => connection }, commands, { get: (id) => [root, foreign, child].find((agent) => agent.id === id), roots: () => [root, foreign] });
   const send = async (request, sessionId = 'root', extra = {}) => {
@@ -43,6 +44,28 @@ test('page routes use actual command results and the same service state as tools
   assert.equal(f.resolutions.at(-1).readOnly, true); assert.ok(!tools.has('review_decide'));
   const other = await f.send({ action: 'status', runId: started.runId }, 'foreign'); assert.equal(other.envelope.value.result.kind, 'error'); assert.match(other.envelope.value.result.text, /another root/);
 });
+test('review-only client lists, starts, reads, decides and controls without a team history reader', async (t) => {
+  const f = await fixture(t, {legacyHistory:false}); f.service.kick = () => {}; let number = 0;
+  const client = createBoardRequestState({ makeId:()=>`review-only-${++number}`, transport:async(path, options)=>{
+    const body = JSON.parse(options.body);
+    if (path.endsWith('/state')) { assert.equal(body.settingsOnly, true); return Response.json({ok:true,value:{enabled:true}}); }
+    return Response.json((await f.send(body.request,body.sessionId)).envelope);
+  }});
+  client.session('root'); await client.state();
+  assert.equal((await client.read('list','list',{action:'list'})).total,0);
+  const started = await client.write('new',{action:'start',requirement:'Independent review',mode:'review',preset:'quick@2'});
+  const runId = started.value.runId;
+  assert.equal((await client.read('list','list',{action:'list'})).items[0].runId,runId);
+  await f.service.mutate(runId,'user-question',(run)=>{run.status='waiting_user';run.questions=[{id:'choose',status:'open',question:'Choose?',findingIds:[],sourceExecutionId:'lead',options:[{id:'yes',label:'Yes',description:'Continue'},{id:'no',label:'No',description:'Wait'}]}];return null;});
+  const summary = await client.read('summary',`${runId}:run`,{action:'read',runId,section:'run'});
+  const chosen = await client.write(`run:${runId}`,{action:'decide',runId,questionId:'choose',optionId:'yes'},summary.revision);
+  assert.equal((await f.service.required(runId)).questions[0].answeredBy,'root');
+  const stopped = await client.write(`run:${runId}`,{action:'stop',runId},chosen.value.revision); assert.equal(stopped.value.status,'paused');
+  const records = await client.read('reference',`${runId}:history`,{action:'read',runId,section:'history'}); assert.ok(records.items.length>0);
+  const questions = await client.read('reference',`${runId}:questions`,{action:'read',runId,section:'questions'}); assert.equal(questions.items[0].answer,'yes');
+  const report = await client.read('reference',`${runId}:report`,{action:'read',runId,section:'report'}); assert.match(report.content,/Independent review/);
+});
+
 test('authenticated route ignores no claimed identity and rejects missing auth, child roots, and body authority fields', async (t) => {
   const f = await fixture(t);
   f.connection.admit = () => ({ rejection: 401 }); assert.equal((await f.send({ action: 'list' })).response.status, 401);
@@ -87,6 +110,48 @@ test('structured decide is user-only, deduplicates the same answer and continues
   const run = await f.service.required(runId); assert.equal(run.questions[0].answeredBy, 'root'); assert.equal(run.decisions.length, 1);
   const invalid = await f.send({ ...action, operationId: undefined }); assert.equal(invalid.envelope.value.result.kind, 'error');
 });
+test('production client request state retries accepted start and import with unchanged identities through the actual route', async (t) => {
+  const f = await fixture(t); f.service.kick = () => {}; let count = 0; const sent = []; const lose = new Set(['start', 'import']);
+  const client = createBoardRequestState({ makeId: () => `client-${++count}`, transport: async (path, options) => {
+    const body = JSON.parse(options.body);
+    if (path.endsWith('/state')) return Response.json({ ok: true, value: { enabled: true } });
+    sent.push(structuredClone(body.request)); const reply = await f.send(body.request, body.sessionId);
+    if (lose.delete(body.request.action)) throw new Error('response lost after accepted');
+    return reply.response.status === 200 ? Response.json(reply.envelope) : Response.json(reply.envelope, { status: reply.response.status });
+  } });
+  client.session('root'); await client.state();
+  const start = { action: 'start', requirement: 'client retry', mode: 'review', preset: 'quick@2' };
+  await assert.rejects(client.write('new', start), /response lost/);
+  const started = await client.write('new', start); assert.equal((await f.service.store.list()).length, 1); assert.deepEqual(sent[0], sent[1]);
+  const history = await client.read('history', 'history', { action: 'history' });
+  const imported = { action: 'import', historyId: history.items[0].id, preset: 'quick@2', mode: 'review' };
+  await assert.rejects(client.write('import:legacy', imported), /response lost/);
+  const replay = await client.write('import:legacy', imported); assert.equal((await f.service.store.list()).length, 2);
+  assert.notEqual(started.value.runId, replay.value.runId); assert.deepEqual(sent.at(-2), sent.at(-1)); assert.notEqual(sent[0].requestId, sent.at(-1).requestId);
+  const before = await f.service.required(started.value.runId); client.updateDraft(`run:${before.runId}`, { requirement: 'preserved input' });
+  await f.call({ action: 'stop', runId: before.runId, operationId: 'concurrent', expectedRevision: before.revision });
+  await assert.rejects(client.write(`run:${before.runId}`, { action: 'stop', runId: before.runId }, before.revision), /REVISION_CONFLICT/);
+  assert.equal(client.pending(`run:${before.runId}`), null); assert.equal(client.draft(`run:${before.runId}`).requirement, 'preserved input');
+});
+
+test('client reference reads reach records beyond the first page and keep concrete check execution and text cursor', async (t) => {
+  const f = await fixture(t); f.service.kick = () => {};
+  const { runId } = await f.call({ action: 'start', requestId: 'ui-reference', requirement: 'refs' });
+  await f.service.mutate(runId, 'reference-pages', (run) => {
+    run.tasks = Array.from({ length: 25 }, (_, i) => ({ id: `task-${i}`, decisionIds: ['decision-a'], objective: `task ${i}`, acceptance: ['complete'], writeScopes: ['src'], dependsOn: [], workStatus: 'pending' }));
+    run.checks = [{ id: 'check-a', argv: ['node', '--test'], taskIds: ['task-24'] }];
+    run.checkResults = [{ checkId: 'check-a', executionId: 'check-execution-1', outcome: 'failed' }, { checkId: 'check-a', executionId: 'check-execution-2', outcome: 'passed' }];
+    return null;
+  });
+  const client = createBoardRequestState({ transport: async (path, options) => path.endsWith('/state') ? Response.json({ ok: true, value: { enabled: true } }) : Response.json((await f.send(JSON.parse(options.body).request)).envelope) });
+  client.session('root'); await client.state();
+  const first = await client.read('tasks', `${runId}:tasks`, { action: 'read', runId, section: 'tasks' }); assert.equal(first.items.length, 20); assert.equal(first.total, 25);
+  const detail = await client.read('reference', `${runId}:tasks:task-24`, { action: 'read', runId, section: 'tasks', id: 'task-24' }); assert.equal(detail.items.length, 1); assert.equal(detail.items[0].id, 'task-24');
+  const result = await client.read('reference', `${runId}:checkResults:check-execution-2`, { action: 'read', runId, section: 'checkResults', id: 'check-execution-2' }); assert.equal(result.items.length, 1); assert.equal(result.items[0].outcome, 'passed');
+  const log = await f.service.store.writeArtifact(runId, 'logs/ui.txt', 'a'.repeat(33000));
+  const chunk = await client.read('reference', `${runId}:artifact:${log}:16000`, { action: 'read', runId, section: 'artifact', id: log, cursor: 16000 }); assert.equal(chunk.content.length, 16000); assert.equal(chunk.nextCursor, 32000);
+});
+
 test('service disposal aborts a pending usage observation and awaits its release without changing historical run', async (t) => {
   const f = await fixture(t); f.service.kick = () => {};
   const { runId } = await f.call({ action: 'start', requestId: 'usage-stop', requirement: 'Inspect' });

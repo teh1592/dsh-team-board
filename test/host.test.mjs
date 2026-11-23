@@ -4652,6 +4652,31 @@ test('P3-14 D-1. 关掉之后一次宿主读取都不发生：四个被 spy 的�
   assert.equal(payload.enabled, false);
 });
 
+test('settingsOnly reads enabled without probing team, roster, gates or role ledger while enabled', async () => {
+  const kv = makeKv({ enabled: true }); const probes = [];
+  const state = createBoardState({ get(key) { probes.push(key); if (key === 'storage') return kv.storage; throw new Error(`unexpected ${key}`); } });
+  await state.hydrate(); const loads = kv.counts.loadAll; const before = probes.length;
+  assert.deepEqual(await state.snapshot({ sessionId: AGENT.id, settingsOnly: true }), { enabled: true });
+  assert.deepEqual(probes.slice(before), []); assert.equal(kv.counts.loadAll, loads, 'settings read must not load role ledger');
+  await state.setEnabled(false); const afterToggle = kv.counts.loadAll;
+  assert.deepEqual(await state.snapshot({ settingsOnly: true }), { enabled: false });
+  assert.equal(kv.counts.loadAll, afterToggle);
+});
+
+test('settingsOnly state route keeps enable toggles light and leaves default snapshots intact', async () => {
+  const kv = makeKv({ enabled: true }); const teams = makeTeams({ tasks: [] }); const connection = makeConnection();
+  const state = createBoardState(makeServiceCtx({storage:kv.storage, agentTeams:teams.teams, agents:{get:()=>AGENT}}));
+  registerStateRoute(makeServiceCtx({connection}), state); const route = connection.routes[0];
+  const send = async (body) => (await (await route.fetch({json:async()=>body})).json()).value;
+  assert.deepEqual(await send({settingsOnly:true,sessionId:AGENT.id}), {enabled:true});
+  assert.equal(teams.calls.length, 0);
+  assert.deepEqual(await send({settingsOnly:true,enabled:false}), {enabled:false});
+  assert.deepEqual(await send({settingsOnly:true,enabled:true}), {enabled:true});
+  assert.equal(teams.calls.length, 0);
+  const full = await send({sessionId:AGENT.id}); assert.ok(full.gates); assert.ok(full.roleLedger); assert.ok(full.dataSource);
+  assert.ok(teams.calls.length > 0);
+});
+
 test('P3-14 D-2. 打开之后同一份宿主**确实会读** —— 否则上面那条会被"什么都不产出"满足', async () => {
   /* 反向自检。没有这一条，D-1 的全部断言都会被一个"永远早退"的实现满足，
    * 而那种实现等于插件死了。 */

@@ -13,14 +13,19 @@ export function executionInputs(run, stageId, role) {
   const common = { requirement: run.requirement, requirementRevision: run.requirementRevision, materials: run.materials, intake: intake?.result ?? null };
   if (stageId === 'intake') return { requirement: run.requirement, materials: run.materials };
   // Independent initial reviewers receive the same source material, never a sibling's opinion.
-  if (stageId === 'review') return { ...common, userAnswers: run.questions.filter((q) => q.status === 'answered') };
+  if (stageId === 'review') return { ...common, userAnswers: run.questions.filter((q) => q.status === 'answered' && q.applicability !== 'stale') };
   const currentExecutions = run.executions.filter((execution) => execution.applicability === 'current' && (execution.requirementRevision === run.requirementRevision || execution.reusedForRevision === run.requirementRevision));
   const currentIds = new Set(currentExecutions.map((execution) => execution.executionId));
   const decisions = currentDecisions(run);
+  const impact = run.revisionImpact;
+  const hasPendingRevision = stageId === 'decide' && impact?.toRevision === run.requirementRevision && impact.pendingDecisionIds?.length;
+  const previousTasks = hasPendingRevision ? run.tasks.filter((task) => task.applicability === 'stale' && impact.pendingTaskIds.includes(task.id)) : [];
+  const previousDecisionIds = new Set(impact?.pendingDecisionIds ?? []);
   return { ...common,
     reviews: currentExecutions.filter((e) => e.stageId === 'review').map((e) => ({ executionId: e.executionId, role: e.role, workStatus: e.workStatus, result: e.result ?? null, diagnostic: e.diagnostic ?? null })),
     findings: run.findings.filter((finding) => finding.applicability !== 'stale' && (currentIds.has(finding.sourceExecutionId) || ['verification', 'machine'].includes(finding.origin))), decisions,
-    questions: run.questions.filter((question) => question.requirementRevision === run.requirementRevision),
+    questions: run.questions.filter((question) => question.applicability !== 'stale' && (question.requirementRevision === run.requirementRevision || question.reusedForRevision === run.requirementRevision)),
+    ...(stageId === 'decide' ? { previousQuestions: run.questions.filter((question) => question.applicability === 'stale'), ...(hasPendingRevision ? { revisionToUpdate: { fromRevision: impact.fromRevision, decisions: run.decisions.filter((decision) => decision.applicability === 'stale' && previousDecisionIds.has(decision.id)), tasks: previousTasks } } : {}) } : {}),
     tasks: currentTasks(run),
     workspace: run.workspace ?? null,
     rework: run.rework ?? null,
@@ -42,7 +47,7 @@ export function buildExecutionSpec(run, stageId, role, executionId) {
     stageId === 'review' ? '这是首次独立意见，直接根据共同需求和材料判断。工作完成与评审结论分开：反对方案也要提交完整结果。' : '',
     '阶段编排由插件负责。需要进一步研究时在结果中说明，保持在当前步骤。',
     '输出与下方 JSON Schema 一致的结构化结果。身份字段原样使用；所有引用 findingIds 使用输入中的完整 ID。新决定使用未使用过的 id，已有决定通过输入中的 decisions 复用。',
-    stageId === 'decide' ? '每个 finding 通过 decision 或用户 question 处理。采纳意见需给 implementation（objective、acceptance、writeScopes）和 checks。重复问题可合并到一个 decision 并保留全部 findingIds。风险、测试场景和异议均保留在后续材料。失败评审也要在 summary 中解释处理方式。' : '',
+    stageId === 'decide' ? '每个 finding 通过 decision 或用户 question 处理。采纳意见需给 implementation（objective、acceptance、writeScopes）和 checks。重复问题可合并到一个 decision 并保留全部 findingIds。风险、测试场景和异议均保留在后续材料。失败评审也要在 summary 中解释处理方式。revisionToUpdate 是本次受影响、已失效的旧决定和任务，按新需求更新其中的目标与验收条件，重新形成决定和任务。previousQuestions 保留旧问题和回答的来源版本，仅供历史参考；questions 是当前有效问题，需求修订后需要重问的选择以新问题提交。' : '',
     stageId === 'build' ? '实际读取项目代码，按tasks逐项实现并编辑文件。读取workspace的基线与变化，保留已有改动。完成后列出真实changed路径、completedTaskIds；只有改好才提交。机器检查由runner执行，模型命令输出是辅助材料。resolvedFindingIds仅填pendingVerificationFindingIds中已修复的ID（origin=verification）；初始review意见通过decisions/tasks验收，不放入该字段；列表为空则填[]。' : '',
     stageId === 'verify' ? '读取projectRoot实际代码和workspace实际变化，检查完整需求、决定、所有测试场景与checkResults。执行过程独立于build，发现具体缺陷给出finding；逐项复查pendingVerificationFindingIds，确认修复后将原完整ID列入resolvedFindingIds。该字段仅用于这份列表中的origin=verification问题；初始review意见通过decisions/tasks验收，不放入该字段；列表为空则填[]。accept需处理列表全部问题。' : '',
     `身份：${JSON.stringify(identity)}`,

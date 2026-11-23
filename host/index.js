@@ -1199,6 +1199,8 @@ export function createBoardState(ctx) {
      * `hydrate` 自己管住三个条件（已读成功过 / 用户手动改过 / 存储还没有），
      * 所以这条既不会覆盖用户刚点的开关，也不会每个请求都打一次磁盘。 */
     await hydrate();
+    // The review page reads only its switch; no team or ledger capability is involved.
+    if (body !== null && typeof body === 'object' && body.settingsOnly === true) return { enabled };
 
     /* ═══════════════════════════════════════════════════════════════════════
      * P3-14：用户关掉了 ⇒ 这一页**什么派生数据都不给**。

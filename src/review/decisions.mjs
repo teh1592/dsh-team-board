@@ -1,4 +1,5 @@
 import { protocolError, validate, decisionInputSchema } from './schemas.mjs';
+import { currentDecisions } from './checks.mjs';
 export function collectFindings(run, execution) {
   for (const finding of execution.result?.findings ?? []) {
     const id = `${execution.executionId}:${finding.id}`;
@@ -25,8 +26,8 @@ export function recordDecision(run, input, owner, sourceExecutionId) {
 export function applyDecisionResult(run, execution) {
   const result = execution.result;
   if (!result) throw protocolError('DECISION_RESULT_MISSING', execution.executionId);
-  const currentFindings = run.findings.filter((finding) => run.executions.some((e) => e.executionId === finding.sourceExecutionId && e.applicability === 'current'));
-  const referenced = new Set([...run.decisions.filter((decision) => decision.requirementRevision === run.requirementRevision).flatMap((d) => d.findingIds), ...result.decisions.flatMap((d) => d.findingIds), ...result.questions.flatMap((q) => q.findingIds)]);
+  const currentFindings = run.findings.filter((finding) => finding.applicability !== 'stale' && run.executions.some((e) => e.executionId === finding.sourceExecutionId && e.applicability === 'current'));
+  const referenced = new Set([...currentDecisions(run).flatMap((d) => d.findingIds), ...result.decisions.flatMap((d) => d.findingIds), ...result.questions.flatMap((q) => q.findingIds)]);
   const missing = currentFindings.filter((finding) => !referenced.has(finding.id));
   if (missing.length) throw protocolError('UNHANDLED_FINDINGS', missing.map((finding) => finding.id).join(', '));
   for (const question of result.questions) {
@@ -35,8 +36,11 @@ export function applyDecisionResult(run, execution) {
   }
   for (const decision of result.decisions) recordDecision(run, decision, execution.childSessionId ?? execution.executionId, execution.executionId);
   run.decisionRevision++;
-  const answered = run.questions.filter((question) => question.status === 'answered');
-  run.questions = [...answered, ...result.questions.map((question) => ({ ...question, sourceExecutionId: execution.executionId, requirementRevision: run.requirementRevision, status: 'open' }))];
+  const retained = run.questions.filter((question) => question.status === 'answered' || question.applicability === 'stale');
+  run.questions = [...retained, ...result.questions.map((question) => ({ ...question, sourceExecutionId: execution.executionId, requirementRevision: run.requirementRevision, status: 'open' }))];
   run.summary = result.summary;
   if (run.questions.some((question) => question.status === 'open')) run.status = 'waiting_user';
+  else if (run.revisionImpact?.toRevision === run.requirementRevision) {
+    run.revisionImpact.pendingDecisionIds = []; run.revisionImpact.pendingTaskIds = [];
+  }
 }

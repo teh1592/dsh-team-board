@@ -1,108 +1,199 @@
-import { reviewViewModel, createReviewRequestGate, decodeReviewResponse } from '../src/review/view-model.mjs';
-export const reviewMessages = {
-  zh: {
-    'review.title': '评审与开发运行', 'review.start': '启动', 'review.requirement': '需求正文', 'review.refresh': '刷新', 'review.empty': '当前会话还没有运行', 'review.loading': '读取运行中…', 'review.error': '操作失败', 'review.mode.review': '只评审', 'review.mode.develop': '实施与验证', 'review.history': '历史任务（只读）', 'review.import': '导入为新运行', 'review.imported': '导入来源', 'review.unknown': '未知', 'review.report': '报告', 'review.logs': '日志', 'review.more': '继续读取', 'review.revise': '修订需求', 'review.reason': '修订原因', 'review.impact': '影响清单 JSON（留空则完整重做）', 'review.submitRevision': '保存修订', 'review.section.run': '运行详情', 'review.section.executions': '角色执行', 'review.section.findings': '意见与问题', 'review.section.decisions': '决定', 'review.section.tasks': '实施任务', 'review.section.checkSpecs': '检查定义', 'review.section.checkResults': '检查结果', 'review.section.report': '报告', 'review.section.history': '操作记录', 'review.section.usage': '运行统计', 'review.pause': '边界暂停', 'review.stop': '立即停止', 'review.resume': '继续', 'review.retry': '重试', 'review.cancel': '取消', 'review.pending': '需要你的选择', 'review.choose': '确认选择', 'review.details': '详细记录', 'review.openLog': '读取日志', 'review.openResult': '读取结果', 'review.noSession': '请打开一个根会话', 'review.readOnly': '历史记录不会自动继续。导入会创建新的运行并保留来源。', 'review.run': '运行', 'review.phase': '阶段', 'review.revision': '需求版本', 'review.storageRevision': '记录版本', 'review.busy': '操作进行中', 'review.lastCommand': '上次命令', 'review.back': '返回分区', 'review.new': '新需求', 'review.previous': '上一页', 'review.partial': '当前显示一页，长内容请继续读取',
-  },
-  en: {
-    'review.title': 'Review and development runs', 'review.start': 'Start', 'review.requirement': 'Requirement', 'review.refresh': 'Refresh', 'review.empty': 'No runs in this session', 'review.loading': 'Loading runs…', 'review.error': 'Operation failed', 'review.mode.review': 'Review only', 'review.mode.develop': 'Implement and verify', 'review.history': 'Historical tasks (read only)', 'review.import': 'Import as a new run', 'review.imported': 'Imported source', 'review.unknown': 'Unknown', 'review.report': 'Report', 'review.logs': 'Logs', 'review.more': 'Load more', 'review.revise': 'Revise requirement', 'review.reason': 'Reason for revision', 'review.impact': 'Impact JSON (empty runs a full review)', 'review.submitRevision': 'Save revision', 'review.section.run': 'Run details', 'review.section.executions': 'Role executions', 'review.section.findings': 'Findings', 'review.section.decisions': 'Decisions', 'review.section.tasks': 'Implementation tasks', 'review.section.checkSpecs': 'Check definitions', 'review.section.checkResults': 'Check results', 'review.section.report': 'Report', 'review.section.history': 'Operation history', 'review.section.usage': 'Run statistics', 'review.pause': 'Pause at boundary', 'review.stop': 'Stop now', 'review.resume': 'Resume', 'review.retry': 'Retry', 'review.cancel': 'Cancel', 'review.pending': 'Your choice is needed', 'review.choose': 'Confirm choice', 'review.details': 'Full record', 'review.openLog': 'Read log', 'review.openResult': 'Read result', 'review.noSession': 'Open a root session', 'review.readOnly': 'History does not resume automatically. Import creates a new run with its source retained.', 'review.run': 'Run', 'review.phase': 'Stage', 'review.revision': 'Requirement version', 'review.storageRevision': 'Record revision', 'review.busy': 'Operation in progress', 'review.lastCommand': 'Last command', 'review.back': 'Back to section', 'review.new': 'New requirement', 'review.previous': 'Previous page', 'review.partial': 'Showing one page; continue to read long content',
-  },
-};
+import { reviewViewModel, reviewRow, reviewControls, discussionView, boardTabs } from '../src/review/view-model.mjs';
+import { createBoardRequestState, createReferenceStack, continueBoardReads } from './request-state.mjs';
+import { boardStyles } from './styles.mjs';
+import { boardMessages } from './messages.mjs';
+export const reviewMessages = boardMessages;
+
 export function createReviewPanel(React, h) {
-  const style = `.tb-review{margin:16px;padding:16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);font:13px/1.55 inherit}.tb-review h2{font-size:16px;margin:0 0 12px}.tb-review h3{font-size:14px;margin:12px 0 8px}.tb-review-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.tb-review label{display:grid;gap:5px;flex:1;min-width:160px}.tb-review textarea,.tb-review input,.tb-review select{font:inherit;box-sizing:border-box;max-width:100%;padding:7px 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}.tb-review textarea{width:100%;min-height:90px;resize:vertical}.tb-review button{font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l3);border-radius:7px;padding:5px 10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.tb-review button:disabled{opacity:.5;cursor:default}.tb-review button:focus-visible,.tb-review textarea:focus-visible,.tb-review input:focus-visible,.tb-review select:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.tb-review [role=alert]{padding:9px;border-left:3px solid var(--dsw-alias-state-error-primary);white-space:pre-wrap}.tb-review pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;background:var(--dsw-alias-bg-layer-2);padding:10px;border-radius:6px;font-size:12px}.tb-review-item{padding:10px 0;border-top:1px solid var(--dsw-alias-border-l2)}.tb-review-small{font-size:12px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.tb-review-tabs button[aria-pressed=true]{border-color:var(--dsw-alias-brand-primary)}.tb-review summary{cursor:pointer}.tb-review-list{max-height:220px;overflow:auto}`;
-  const id = () => globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const sections = ['run', 'executions', 'findings', 'decisions', 'tasks', 'checkSpecs', 'checkResults', 'report', 'history', 'usage'];
-  function ReviewPanel({ sessionId, t }) {
-    const [runs, setRuns] = React.useState({ items: [], nextCursor: null });
-    const [runId, setRunId] = React.useState(''); const [section, setSection] = React.useState('run');
-    const [run, setRun] = React.useState(null); const [page, setPage] = React.useState({});
-    const [error, setError] = React.useState(null); const [busy, setBusy] = React.useState(false); const [loading, setLoading] = React.useState(false);
-    const [requirement, setRequirement] = React.useState(''); const [mode, setMode] = React.useState('review'); const [preset, setPreset] = React.useState('standard@2');
-    const [reason, setReason] = React.useState(''); const [impact, setImpact] = React.useState(''); const [revisionDraft, setRevisionDraft] = React.useState('');
-    const [history, setHistory] = React.useState(null); const [artifact, setArtifact] = React.useState(null); const [lastCommand, setLastCommand] = React.useState(null);
-    const gates = React.useRef(null); if (!gates.current) gates.current = { list: createReviewRequestGate(), detail: createReviewRequestGate(), mutation: createReviewRequestGate(), history: createReviewRequestGate() };
-    const context = React.useRef({ sessionId, runId, section }); context.current = { sessionId, runId, section };
-    const mutation = React.useRef(null); const locked = React.useRef(false); const startKey = React.useRef(id());
-    const query = React.useCallback(async (request, token) => {
-      const response = await fetch('/api/team-board/review', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, request }), signal: token.controller.signal });
-      const envelope = await response.json(); return { value: decodeReviewResponse(envelope), commandId: envelope.value?.commandId ?? null };
-    }, [sessionId]);
-    const listRuns = React.useCallback(async (cursor = 0) => {
-      const token = gates.current.list.begin(`${sessionId}:list`);
-      try { const { value } = await query({ action: 'list', cursor }, token); if (gates.current.list.accepts(token)) setRuns({ ...value, cursor }); }
-      catch (problem) { if (gates.current.list.accepts(token)) setError(problem.message); }
-    }, [query, sessionId]);
-    const load = React.useCallback(async (cursor = 0, logRef = null) => {
-      if (!runId) return; setError(null); const token = gates.current.detail.begin(`${sessionId}:${runId}:${section}:${logRef ?? ''}`); setLoading(true);
-      try {
-        const [summary, detail] = await Promise.all([query({ action: 'read', runId, section: 'run' }, token), query({ action: 'read', runId, section: logRef ? 'artifact' : section, cursor, ...(logRef ? { id: logRef } : {}) }, token)]);
-        if (gates.current.detail.accepts(token)) { setRun(summary.value); setPage({ ...detail.value, cursor }); setArtifact(logRef); }
-      } catch (problem) { if (gates.current.detail.accepts(token)) setError(problem.message); }
-      finally { if (gates.current.detail.accepts(token)) setLoading(false); }
-    }, [query, runId, section, sessionId]);
-    React.useEffect(() => {
-      setRunId(''); setRun(null); setPage({}); setRuns({ items: [], nextCursor: null }); setHistory(null); setError(null); mutation.current = null; locked.current = false; setBusy(false); startKey.current = id(); if (sessionId) listRuns();
-      return () => { for (const gate of Object.values(gates.current)) gate.cancel(); };
-    }, [sessionId, listRuns]);
-    React.useEffect(() => { setPage({}); setRun(null); setArtifact(null); setError(null); setLoading(false); if (runId) load(); return () => gates.current.detail.cancel(); }, [load, runId, section]);
-    const operate = async (request) => {
-      if (locked.current) return; locked.current = true; setBusy(true); setError(null);
-      const owner = { ...context.current }; const fingerprint = JSON.stringify(request);
-      if (!mutation.current || mutation.current.fingerprint !== fingerprint) mutation.current = { fingerprint, payload: { ...request, ...(['start', 'import'].includes(request.action) ? {} : { operationId: id(), expectedRevision: run?.revision }) } };
-      const token = gates.current.mutation.begin(`${owner.sessionId}:${owner.runId}:${owner.section}`);
-      try {
-        const payload = mutation.current.payload;
-        const { value, commandId } = await query(payload, token);
-        if (gates.current.mutation.accepts(token) && context.current.sessionId === owner.sessionId && context.current.runId === owner.runId && context.current.section === owner.section) {
-          setLastCommand(commandId); mutation.current = null;
-          if (value.runId) { if (value.runId !== runId) { setRunId(value.runId); setSection('run'); } else await load(); }
-          if (request.action === 'start') startKey.current = id();
-          await listRuns();
-        }
-      } catch (problem) {
-        if (gates.current.mutation.accepts(token) && context.current.sessionId === owner.sessionId && context.current.runId === owner.runId && context.current.section === owner.section) { if (problem.message.includes('REVISION_CONFLICT')) { mutation.current = null; await load(); } setError(problem.message); }
-      } finally { if (gates.current.mutation.accepts(token)) { locked.current = false; setBusy(false); } }
-    };
-    const loadHistory = async (cursor = 0) => {
-      const token = gates.current.history.begin(`${sessionId}:history`);
-      try { const { value } = await query({ action: 'history', cursor }, token); if (gates.current.history.accepts(token)) setHistory({ ...value, cursor }); }
-      catch (problem) { if (gates.current.history.accepts(token)) setError(problem.message); }
-    };
-    const vm = reviewViewModel(run, section, page);
-    const button = (label, fn, disabled = false, extra = {}) => h('button', { type: 'button', onClick: fn, disabled: busy || disabled, ...extra }, label);
-    const viewRows = vm.rows ?? [];
-    return h('section', { className: 'tb-review', 'aria-busy': busy || loading }, h('style', null, style),
-      h('div', { className: 'tb-review-row' }, h('h2', null, t('review.title')), button(t('review.refresh'), () => { listRuns(); if (runId) load(); }), busy ? h('span', { role: 'status' }, t('review.busy')) : null),
-      !sessionId ? h('p', null, t('review.noSession')) : null,
-      error ? h('div', { role: 'alert' }, `${t('review.error')}: ${error}`) : null,
-      h('details', null, h('summary', null, t('review.new')),
-        h('label', null, t('review.requirement'), h('textarea', { value: requirement, onChange: (event) => { setRequirement(event.target.value); startKey.current = id(); } })),
-        h('div', { className: 'tb-review-row' }, h('select', { 'aria-label': t('review.run'), value: mode, onChange: (event) => { setMode(event.target.value); startKey.current = id(); } }, ['review', 'develop'].map((key) => h('option', { value: key, key }, t(`review.mode.${key}`)))),
-          h('select', { 'aria-label': 'Preset', value: preset, onChange: (event) => { setPreset(event.target.value); startKey.current = id(); } }, ['quick@2', 'standard@2'].map((key) => h('option', { value: key, key }, key))),
-          button(t('review.start'), () => operate({ action: 'start', requestId: startKey.current, requirement, mode, preset }), !sessionId || !requirement.trim()))),
-      h('div', { className: 'tb-review-list' }, runs.items.length ? runs.items.map((item) => button(`${item.runId} · ${item.status} · ${item.phase}`, () => { setRunId(item.runId); setSection('run'); setRevisionDraft(''); }, false, { key: item.runId, 'aria-pressed': item.runId === runId })) : h('p', null, t('review.empty'))),
-      (runs.errors ?? []).map((entry, index) => h('div', { role: 'alert', key: index }, `${entry.projectRoot}: ${entry.message}`)),
-      runs.cursor > 0 ? button(t('review.previous'), () => listRuns(Math.max(0, runs.cursor - 20))) : null,
-      runs.nextCursor !== null ? button(t('review.more'), () => listRuns(runs.nextCursor)) : null,
-      loading ? h('p', { role: 'status' }, t('review.loading')) : null,
-      vm.state === 'ready' ? h('div', null,
-        h('div', { className: 'tb-review-small' }, `${vm.runId} · ${vm.mode} · ${vm.preset} · ${t('review.phase')}: ${vm.phase} · ${t('review.revision')}: ${vm.requirementRevision ?? t('review.unknown')} · ${t('review.storageRevision')}: ${vm.revision ?? t('review.unknown')}`),
-        h('p', null, vm.summary), vm.diagnostic ? h('pre', null, vm.diagnostic) : null,
-        vm.provenance ? h('details', null, h('summary', null, t('review.imported')), h('pre', null, JSON.stringify(vm.provenance, null, 2))) : null,
-        h('div', { className: 'tb-review-row' }, ['pause', 'stop', 'resume', 'retry', 'cancel'].map((action) => button(t(`review.${action}`), () => operate({ action, runId }), ['completed', 'cancelled'].includes(vm.status), { key: action }))),
-        (vm.pending ?? []).filter((question) => question.status === 'open').map((question) => h('div', { className: 'tb-review-item', key: question.id }, h('strong', null, t('review.pending')), h('p', null, question.question), question.options.map((option) => button(`${t('review.choose')}: ${option.label}`, () => operate({ action: 'decide', runId, questionId: question.id, optionId: option.id }), false, { key: option.id, title: option.description })))),
-        h('div', { className: 'tb-review-row tb-review-tabs' }, sections.map((key) => button(t(`review.section.${key}`), () => { setSection(key); setArtifact(null); }, false, { key, 'aria-pressed': section === key && !artifact }))),
-        artifact ? button(t('review.back'), () => load()) : null,
-        vm.content !== null ? h('pre', null, vm.content) : section === 'run' ? h('pre', null, vm.requirement) : section === 'usage' ? h('pre', null, JSON.stringify(page, null, 2)) : viewRows.map((row, index) => h('article', { className: 'tb-review-item', key: `${row.id}-${index}` }, h('strong', null, row.id), h('span', { className: 'tb-review-small' }, ` · ${row.status} · ${row.applicability}`), h('p', null, row.title), h('details', null, h('summary', null, t('review.details')), h('pre', null, row.detail)), row.logRef ? button(t('review.openLog'), () => load(0, row.logRef)) : null, row.resultRef ? button(t('review.openResult'), () => load(0, row.resultRef)) : null)),
-        page.cursor > 0 ? button(t('review.previous'), () => load(Math.max(0, page.cursor - (vm.content === null ? 20 : 16000)), artifact)) : null,
-        vm.truncated ? h('p', { className: 'tb-review-small' }, t('review.partial')) : null,
-        vm.nextCursor !== null ? button(t('review.more'), () => load(vm.nextCursor, artifact)) : null,
-        h('details', null, h('summary', null, t('review.revise')), h('label', null, t('review.requirement'), h('textarea', { value: revisionDraft || '', placeholder: vm.requirement, onChange: (event) => setRevisionDraft(event.target.value) })), h('label', null, t('review.reason'), h('input', { value: reason, onChange: (event) => setReason(event.target.value) })), h('label', null, t('review.impact'), h('textarea', { value: impact, onChange: (event) => setImpact(event.target.value) })), button(t('review.submitRevision'), () => { try { operate({ action: 'revise', runId, requirement: revisionDraft || vm.requirement, reason, ...(impact.trim() ? { impact: JSON.parse(impact) } : {}) }); } catch (problem) { setError(problem.message); } }, !reason.trim())),
-      ) : null,
-      h('details', null, h('summary', { onClick: () => { if (!history) loadHistory(); } }, t('review.history')), h('p', null, t('review.readOnly')), history?.reason ? h('p', null, history.reason) : null,
-        (history?.items ?? []).map((item) => h('article', { className: 'tb-review-item', key: item.id }, h('strong', null, `${item.id} · ${item.title}`), h('pre', null, item.content), item.truncated ? h('p', { className: 'tb-review-small' }, t('review.partial')) : null, button(t('review.import'), () => operate({ action: 'import', historyId: item.id, requestId: `import-${item.digest}-${startKey.current}`, preset, mode })))),
-        history?.cursor > 0 ? button(t('review.previous'), () => loadHistory(Math.max(0, history.cursor - 20))) : null,
-        history?.nextCursor !== null && history?.nextCursor !== undefined ? button(t('review.more'), () => loadHistory(history.nextCursor)) : null),
-      lastCommand ? h('div', { className: 'tb-review-small' }, `${t('review.lastCommand')}: ${lastCommand}`) : null);
+  const uid = () => globalThis.crypto?.randomUUID?.() ?? `board-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const sessionStates = new Map();
+  function RecordDetails({ value, t }) {
+    const [opened, setOpened] = React.useState(false); const [cursor, setCursor] = React.useState(0);
+    const content = React.useMemo(() => opened ? JSON.stringify(value, null, 2) ?? '' : '', [opened, value]);
+    return h('details', { onToggle: (event) => setOpened(event.currentTarget.open) }, h('summary', null, t('boardUi.raw')),
+      opened ? h('div', null, h('pre', null, content.slice(cursor, cursor + 16000)), h('div', { className: 'tb-pagination' },
+        cursor ? h('button', { type: 'button', onClick: () => setCursor(Math.max(0, cursor - 16000)) }, t('boardUi.previous')) : null,
+        cursor + 16000 < content.length ? h('button', { type: 'button', onClick: () => setCursor(cursor + 16000) }, t('boardUi.more')) : null)) : null);
   }
-  return ReviewPanel;
+  function UnifiedBoard({ sessionId, t }) {
+    const [, redraw] = React.useState(0); const bump = () => redraw((value) => value + 1);
+    const requestRef = React.useRef(null); if (!requestRef.current) { if (!sessionStates.has(sessionId)) sessionStates.set(sessionId, createBoardRequestState({ makeId: uid })); requestRef.current = sessionStates.get(sessionId); }
+    const requests = requestRef.current; requests.session(sessionId ?? '');
+    const [state, setState] = React.useState({ status: 'loading', value: null });
+    const [runs, setRuns] = React.useState({ items: [], cursor: 0, total: null, nextCursor: null });
+    const [runId, setRunId] = React.useState(''); const [tab, setTab] = React.useState('overview');
+    const [run, setRun] = React.useState(null); const [pages, setPages] = React.useState({});
+    const [detail, setDetail] = React.useState(null); const [detailPage, setDetailPage] = React.useState(null);
+    const [error, setError] = React.useState(null); const [notice, setNotice] = React.useState(null); const [busy, setBusy] = React.useState(false);
+    const refs = React.useRef(null); if (!refs.current) refs.current = createReferenceStack();
+    const returnFocus = React.useRef(null); const detailHeading = React.useRef(null);
+    const current = React.useRef(null);
+    if (!current.current || current.current.sessionId !== sessionId || current.current.runId !== runId || current.current.tab !== tab) current.current = { sessionId, runId, tab };
+    const refreshGeneration = React.useRef(0);
+    const scope = runId ? `run:${runId}` : 'new';
+    const draft = requests.draft('new', { requirement: '', mode: 'review', preset: 'standard@2' });
+    const revisionDraft = requests.draft(scope, { requirement: '', requirementEdited: false, reason: '', impact: '' });
+    const update = (key, patch) => { requests.updateDraft(key, patch); bump(); };
+    const tr = (key, vars) => t(`boardUi.${key}`, vars);
+    const label = (value) => { const result = tr(`state.${value}`); return result === `boardUi.state.${value}` ? value : result; };
+    const tone = (value) => ['error', 'failed', 'reject'].includes(value) ? 'danger' : ['waiting_user', 'paused', 'needs_revision', 'interrupted'].includes(value) ? 'warn' : ['running', 'queued', 'in_progress'].includes(value) ? 'active' : ['passed', 'accept', 'completed'].includes(value) ? 'success' : 'plain';
+    const status = (value) => h('span', { className: 'tb-status', 'data-tone': tone(value) }, label(value ?? 'unknown'));
+    const button = (text, fn, disabled = false, props = {}) => h('button', { type: 'button', disabled, onClick: fn, ...props }, text);
+    const link = (text, ref, props = {}) => button(text, (event) => open(ref, event), false, { className: 'tb-link', ...props });
+    const json = (value) => h('pre', null, JSON.stringify(value, null, 2));
+    const fail = (problem) => { if (problem?.name !== 'AbortError') setError(problem.message ?? String(problem)); };
+    const ownerIsCurrent = (owner) => current.current.sessionId === owner.sessionId && current.current.runId === owner.runId && requests.enabled();
+    const readSection = async (section, cursor = 0, targetRun = runId) => {
+      const owner = { sessionId, runId: targetRun };
+      if (!ownerIsCurrent(owner)) return;
+      try {
+        const page = await requests.read(`section:${section}`, `${targetRun}:${section}:${cursor}`, { action: 'read', runId: targetRun, section, cursor });
+        if (page && ownerIsCurrent(owner)) setPages((previous) => ({ ...previous, [section]: { ...page, cursor } }));
+      } catch (problem) { if (ownerIsCurrent(owner)) { setPages((previous) => ({ ...previous, [section]: { error: problem.message, cursor } })); fail(problem); } }
+    };
+    const readRun = async (targetRun = runId) => {
+      if (!targetRun || !ownerIsCurrent({ sessionId, runId: targetRun })) return;
+      try { const value = await requests.read('summary', `${targetRun}:run`, { action: 'read', runId: targetRun, section: 'run' }); if (value && current.current.runId === targetRun) setRun(value); }
+      catch (problem) { if (current.current.runId === targetRun) fail(problem); }
+    };
+    const listRuns = async (cursor = 0) => {
+      try { const value = await requests.read('list', `list:${cursor}`, { action: 'list', cursor }); if (value) setRuns({ ...value, cursor }); }
+      catch (problem) { fail(problem); }
+    };
+    const refreshState = async (next) => {
+      const owner = current.current; const generation = ++refreshGeneration.current;
+      const sameRefresh = () => current.current === owner && refreshGeneration.current === generation;
+      setError(null);
+      if (next === false) { requests.disable(); setState((previous) => ({ ...previous, value: { ...previous.value, enabled: false } })); }
+      try {
+        await continueBoardReads(sameRefresh, [async () => {
+          const value = await requests.state(next); if (!value) return false;
+          setState({ status: 'ready', value });
+          if (!value.enabled) { if (sameRefresh()) { setRun(null); setPages({}); setDetail(null); refs.current.clear(); } return false; }
+        }, () => listRuns(), () => runId ? readRun() : undefined, () => runId ? loadTab(tab) : undefined]);
+      } catch (problem) { if (sameRefresh()) { requests.disable(); setState({ status: 'failed', value: null }); fail(problem); } }
+    };
+    React.useEffect(() => {
+      if (sessionId) refreshState(); else setState({ status: 'ready', value: null });
+      return () => { requests.disable(); };
+    }, [sessionId]);
+    const loadTab = async (selected) => {
+      if (!runId || !ownerIsCurrent({ sessionId, runId }) || current.current.tab !== selected) return;
+      const sections = selected === 'overview' ? ['tasks'] : selected === 'discussion' ? ['findings', 'decisions', 'executions', 'tasks'] : selected === 'tasks' ? ['tasks'] : ['checkResults', 'executions'];
+      // Independent gates for the three bounded pages: one completion cannot cancel another.
+      await Promise.all(sections.map((section) => readSection(section, pages[section]?.cursor ?? 0)));
+    };
+    React.useEffect(() => {
+      setError(null); setDetail(null); setDetailPage(null); refs.current.clear(); requests.cancel('reference');
+      if (runId && requests.enabled()) { readRun(); loadTab(tab); }
+      return () => { requests.cancel('summary'); for (const key of ['tasks', 'findings', 'decisions', 'executions', 'checkResults']) requests.cancel(`section:${key}`); };
+    }, [runId, tab, state.value?.enabled]);
+    React.useEffect(() => { if (detail) detailHeading.current?.focus(); }, [detail]);
+    const selectContext = (next) => { setRunId(next); setRun(null); setPages({}); setTab('overview'); setError(null); setNotice(null); };
+    const queryDetail = async (ref) => {
+      setDetailPage(null); if (!ref || ref.local || ['new', 'records', 'revise'].includes(ref.section)) return;
+      const target = runId;
+      try {
+        const page = await requests.read('reference', `${target}:${ref.section}:${ref.id ?? ''}:${ref.cursor}`, { action: 'read', runId: target, section: ref.section, cursor: ref.cursor, ...(ref.id ? { id: ref.id } : {}) });
+        if (page && current.current.runId === target) setDetailPage({ ...page, cursor: ref.cursor });
+      } catch (problem) { fail(problem); }
+    };
+    const open = (ref, event) => { if (!refs.current.depth()) returnFocus.current = event?.currentTarget ?? null; const next = refs.current.open(ref); setDetail(next); setError(null); queryDetail(next); };
+    const close = () => { requests.cancel('reference'); const next = refs.current.back(); setDetail(next); setError(null); if (next) queryDetail(next); else { setDetailPage(null); returnFocus.current?.focus?.(); } };
+    const clearDetail = () => { refs.current.clear(); setDetail(null); setDetailPage(null); requests.cancel('reference'); returnFocus.current?.focus?.(); };
+    const operate = async (intentScope, request) => {
+      if (busy) return; const owner = { ...current.current }; setBusy(true); setError(null);
+      try {
+        const result = await requests.write(intentScope, request, run?.revision);
+        if (result.pending || !result.visible) return;
+        if (request.action === 'start') { clearDetail(); selectContext(result.value.runId); await listRuns(); }
+        else if (ownerIsCurrent(owner)) { const readOwner = current.current; await continueBoardReads(() => current.current === readOwner && requests.enabled(), [() => readRun(), () => loadTab(readOwner.tab)]); }
+        else setNotice(tr('savedElsewhere'));
+      } catch (problem) { if (current.current.sessionId === owner.sessionId && requests.enabled()) { if (request.action === 'start' || ownerIsCurrent(owner)) fail(problem); else setNotice(tr('savedElsewhere')); if (problem.message.includes('REVISION_CONFLICT') && ownerIsCurrent(owner)) await readRun(); } }
+      finally { if (current.current.sessionId === owner.sessionId) setBusy(false); }
+    };
+    const retry = (intentScope) => {
+      const payload = requests.pending(intentScope); if (!payload) return;
+      const { operationId, expectedRevision, requestId, ...request } = payload; operate(intentScope, request);
+    };
+    const retryButton = (intentScope) => requests.pending(intentScope) ? button(tr('operationRetry'), () => retry(intentScope), busy) : null;
+    const pagination = (page, fn, textMode = false) => page ? h('div', { className: 'tb-pagination' },
+      page.cursor > 0 ? button(tr('previous'), () => fn(Math.max(0, page.cursor - (textMode ? 16000 : 20)))) : null,
+      Number.isSafeInteger(page.total) ? h('span', null, tr('range', { start: page.total ? (page.cursor ?? 0) + 1 : 0, end: (page.cursor ?? 0) + (page.items?.length ?? page.executions?.length ?? 0), total: page.total })) : page.truncated ? h('span', null, tr('partial')) : null,
+      page.nextCursor !== null && page.nextCursor !== undefined ? button(tr('more'), () => fn(page.nextCursor)) : null) : null;
+    const related = (row, showMissing = false) => row.refs?.length ? h('div', { className: 'tb-related' }, h('span', { className: 'tb-muted' }, tr('related')), row.refs.map((ref) => link(`${tr(ref.section)} · ${ref.id}`, ref, { key: `${ref.section}:${ref.id}` }))) : showMissing ? h('p', { className: 'tb-muted' }, tr('noRelation')) : null;
+    const rowNode = (row) => h('article', { className: 'tb-item', key: row.key },
+      h('div', { className: 'tb-item-head' }, link(row.title, { section: row.section, ...(row.recordId ? { id: row.recordId } : { local: row.raw }) }), status(row.reviewDecision ?? row.status)),
+      row.role || row.applicability === 'stale' ? h('div', { className: 'tb-meta' }, row.role ? h('span', null, row.role) : null, row.applicability === 'stale' ? h('span', null, label('stale')) : null) : null);
+    const sectionRows = (section, filter = null) => {
+      const page = pages[section];
+      if (!page) return h('p', { className: 'tb-muted', role: 'status' }, tr('loading'));
+      if (page.error) return h('div', { className: 'tb-alert', role: 'alert' }, page.error);
+      const model = reviewViewModel(run, section, page); const rows = filter ? model.rows.filter(filter) : model.rows;
+      const active = rows.filter((row) => row.applicability !== 'stale'); const archived = rows.filter((row) => row.applicability === 'stale');
+      return h(React.Fragment, null, active.length ? active.map(rowNode) : h('p', { className: 'tb-muted' }, tr(filter ? 'noVerifier' : 'empty')), archived.length ? h('details', { className: 'tb-section' }, h('summary', null, label('stale')), archived.map(rowNode)) : null, pagination(page, (cursor) => readSection(section, cursor)));
+    };
+    const runOverview = () => {
+      const question = run?.pending?.find((entry) => entry.status === 'open'); const controls = reviewControls(run); const primary = controls.resume ? 'resume' : controls.retry ? 'retry' : controls.pause ? 'pause' : null;
+      return h(React.Fragment, null, question ? h('section', { className: 'tb-focus' }, h('h2', null, question.question), h('div', { className: 'tb-choice' }, question.options.map((option) => button(h(React.Fragment, null, option.label, option.description ? h('small', null, option.description) : null), () => operate(scope, { action: 'decide', runId, questionId: question.id, optionId: option.id }), busy, { key: option.id }))), question.findingIds?.length ? related({ refs: question.findingIds.map((id) => ({ section: 'findings', id })) }) : null) : h('section', { className: 'tb-focus' }, h('h2', null, run?.summary ?? tr('current')), ['paused', 'error'].includes(run?.status) && run?.diagnostic ? h('p', null, run.diagnostic) : null, primary ? h('div', { className: 'tb-actions' }, button(tr(primary), () => operate(scope, { action: primary, runId }), busy, { className: 'tb-primary' })) : null),
+        h('details', null, h('summary', null, tr('controls')), h('div', { className: 'tb-actions' }, Object.keys(controls).map((action) => button(tr(action), () => operate(scope, { action, runId }), busy || !controls[action], { key: action })), button(tr('revise'), (event) => open({ section: 'revise' }, event), busy))),
+        h('section', { className: 'tb-section' }, h('div', { className: 'tb-section-head' }, h('h2', null, tr('tasks')), button(tr('more'), () => setTab('tasks'), false, { className: 'tb-quiet' })), sectionRows('tasks')));
+    };
+    const runDiscussion = () => {
+      const view = discussionView(pages.findings?.items, pages.decisions?.items, pages.tasks?.items);
+      const loaded = pages.findings && pages.decisions;
+      return h(React.Fragment, null, !loaded ? h('p', { role: 'status' }, tr('loading')) : view.issues.length ? view.issues.map(({ finding, decisions }) => h('article', { className: 'tb-item', key: finding.key },
+        h('div', { className: 'tb-item-head' }, link(finding.title, { section: 'findings', id: finding.recordId }), status(finding.status)),
+        finding.raw.sourceExecutionId ? h('div', { className: 'tb-meta' }, link((pages.executions?.items ?? []).find((entry) => entry.executionId === finding.raw.sourceExecutionId)?.role ?? tr('source'), { section: finding.raw.origin === 'machine' ? 'checkResults' : 'executions', id: finding.raw.sourceExecutionId })) : null,
+        decisions.map(({ decision, tasks }) => h('div', { className: 'tb-decision', key: decision.key }, h('strong', null, label(decision.status)), h('p', null, decision.title), link(tr('details'), { section: 'decisions', id: decision.recordId }),
+          h('div', { className: 'tb-related' }, tasks.map((task) => link(task.title, { section: 'tasks', id: task.recordId }, { key: task.key })), decision.refs.filter((ref) => ref.section === 'tasks' && !tasks.some((task) => task.id === ref.id)).map((ref) => link(`${tr('task')} · ${ref.id}`, ref, { key: ref.id }))))),
+        decisions.length ? null : related({ refs: finding.refs.filter((ref) => ref.section !== 'executions') }))) : h('p', { className: 'tb-muted' }, tr('empty')),
+        pagination(pages.findings, (cursor) => readSection('findings', cursor)),
+        view.otherDecisions.length ? h('section', { className: 'tb-section' }, h('div', { className: 'tb-section-head' }, h('h2', null, tr('decisions'))), view.otherDecisions.map(rowNode)) : null,
+        pagination(pages.decisions, (cursor) => readSection('decisions', cursor)),
+        h('details', { className: 'tb-section' }, h('summary', null, tr('executions')), sectionRows('executions')),
+        h('details', { className: 'tb-section' }, h('summary', null, label('stale')), ['findings', 'decisions'].map((section) => h('div', { key: section }, (pages[section]?.items ?? []).filter((entry) => entry.applicability === 'stale').map((entry) => rowNode(reviewRow(entry, section)))))));
+    };
+    const runResults = () => h(React.Fragment, null,
+      h('section', null, h('div', { className: 'tb-section-head' }, h('h2', null, tr('checkResults'))), sectionRows('checkResults')),
+      h('section', { className: 'tb-section' }, h('div', { className: 'tb-section-head' }, h('h2', null, tr('verifier'))), sectionRows('executions', (row) => row.stageId === 'verify')),
+      h('div', { className: 'tb-actions' }, link(tr('report'), { section: 'report' }), link(tr('checkSpecs'), { section: 'checkSpecs' }), link(tr('artifacts'), { section: 'executions' })));
+    const form = (revising = false) => {
+      const value = revising ? revisionDraft : draft; const draftScope = revising ? scope : 'new';
+      return h('div', null, h('label', null, tr('requirement'), h('textarea', { value: revising && !value.requirementEdited ? (run?.requirement ?? '') : value.requirement, onChange: (event) => update(draftScope, { requirement: event.target.value, requirementEdited: true }) })),
+        revising ? h(React.Fragment, null, h('label', null, tr('reason'), h('input', { value: value.reason, onChange: (event) => update(draftScope, { reason: event.target.value }) })), h('label', null, tr('impact'), h('textarea', { value: value.impact, onChange: (event) => update(draftScope, { impact: event.target.value }) }))) : h('div', { className: 'tb-form-row' }, h('label', null, tr('mode'), h('select', { value: value.mode, onChange: (event) => update('new', { mode: event.target.value }) }, ['review', 'develop'].map((key) => h('option', { key, value: key }, tr(key))))), h('label', null, tr('preset'), h('select', { value: value.preset, onChange: (event) => update('new', { preset: event.target.value }) }, ['quick@2', 'standard@2'].map((key) => h('option', { key, value: key }, key))))),
+        h('div', { className: 'tb-actions' }, button(tr(revising ? 'saveRevision' : 'start'), () => { try { operate(revising ? scope : 'new', revising ? { action: 'revise', runId, requirement: value.requirementEdited ? value.requirement : run.requirement, reason: value.reason, ...(value.impact.trim() ? { impact: JSON.parse(value.impact) } : {}) } : { action: 'start', requirement: value.requirement, mode: value.mode, preset: value.preset }); } catch (problem) { fail(problem); } }, busy || (revising ? !value.reason.trim() : !value.requirement.trim()), { className: 'tb-primary' }), retryButton(revising ? scope : 'new')));
+    };
+    const detailRows = () => {
+      if (!detailPage) return h('p', { role: 'status', className: 'tb-muted' }, tr('loading'));
+      if (detailPage.content !== undefined) return h(React.Fragment, null, h('pre', null, detailPage.content), pagination(detailPage, (cursor) => { const next = refs.current.page(cursor); setDetail(next); queryDetail(next); }, true));
+      if (detail.section === 'usage') return h(React.Fragment, null, json(detailPage), pagination(detailPage, (cursor) => { const next = refs.current.page(cursor); setDetail(next); queryDetail(next); }));
+      const model = reviewViewModel(run, detail.section, detailPage);
+      return h(React.Fragment, null, model.rows.length ? model.rows.map((row) => h('article', { className: 'tb-item', key: row.key }, h('h2', null, row.title), h('div', { className: 'tb-meta' }, status(row.status), row.reviewDecision ? status(row.reviewDecision) : null, row.applicability !== 'unknown' ? label(row.applicability) : null), row.basis ? h('p', null, row.basis) : null,
+        h('dl', null, h('dt', null, tr('execution')), h('dd', null, row.raw.executionId ?? row.raw.sourceExecutionId ?? row.recordId), row.requirementRevision !== null ? h(React.Fragment, null, h('dt', null, tr('version')), h('dd', null, row.requirementRevision)) : null, row.role ? h(React.Fragment, null, h('dt', null, tr('owner')), h('dd', null, row.role)) : null),
+        row.acceptance.length ? h('div', null, h('h3', null, tr('acceptance')), h('ul', null, row.acceptance.map((text, index) => h('li', { key: index }, text)))) : null,
+        row.scopes.length ? h('div', null, h('h3', null, tr('scopes')), h('p', null, row.scopes.join(', '))) : null,
+        related(row), h('div', { className: 'tb-actions' }, row.logRef ? link(tr('log'), { section: 'artifact', id: row.logRef }) : null, row.resultRef ? link(tr('result'), { section: 'artifact', id: row.resultRef }) : null), h(RecordDetails, { value: row.raw, t }))) : h('p', { className: 'tb-muted' }, tr('missing')), pagination(detailPage, (cursor) => { const next = refs.current.page(cursor); setDetail(next); queryDetail(next); }));
+    };
+    const records = () => h('div', null,
+      h('div', { className: 'tb-actions' }, ['history', 'questions', 'executions', 'usage'].map((section) => link(tr(section === 'history' ? 'records' : section), { section }, { key: section }))),
+      h(RecordDetails, { value: run, t }));
+    const renderDetail = () => h('section', { className: 'tb-detail', onKeyDown: (event) => { if (event.key === 'Escape') close(); } },
+      h('div', { className: 'tb-detail-bar' }, button(tr('back'), close, false, { className: 'tb-quiet' }), button(tr('close'), clearDetail, false, { className: 'tb-quiet' })),
+      h('h2', { ref: detailHeading, tabIndex: -1 }, tr(detail.section === 'artifact' ? 'result' : detail.section)),
+      detail.section === 'new' ? form() : detail.section === 'revise' ? form(true) : detail.section === 'records' ? records() : detail.local ? h('div', null, rowNode(reviewRow(detail.local, detail.section)), h(RecordDetails, { value: detail.local, t })) : detailRows());
+    const title = runId ? (run?.requirement?.split('\n').find((line) => line.trim())?.slice(0, 160) ?? run?.summary ?? tr('loading')) : tr('title');
+    const enabled = state.value?.enabled === true;
+    return h('div', { className: 'tb-page', 'aria-busy': busy }, h('style', null, boardStyles),
+      h('header', { className: 'tb-toolbar' }, h('select', { value: runId, 'aria-label': tr('context'), disabled: !enabled, onChange: (event) => selectContext(event.target.value) }, h('option', { value: '', disabled: true }, tr('selectRun')), runs.items.map((item) => h('option', { key: item.runId, value: item.runId }, item.summary || item.runId)), runId && !runs.items.some((item) => item.runId === runId) ? h('option', { value: runId }, run?.summary ?? tr('runSource')) : null),
+        h('div', { className: 'tb-toolbar-actions' }, button(tr('new'), (event) => open({ section: 'new' }, event), !enabled, { className: 'tb-quiet' }), button(tr('refresh'), () => refreshState(), state.status === 'loading', { className: 'tb-quiet' }), button(enabled ? tr('enabled') : tr('disabled'), () => refreshState(!enabled), !sessionId || busy, { role: 'switch', 'aria-label': tr('enabled'), 'aria-checked': enabled, className: 'tb-quiet' }))),
+      h('main', { className: 'tb-main' },
+        error ? h('div', { className: 'tb-alert', role: 'alert' }, `${tr('error')}: ${error}`, retryButton(scope)) : null, notice ? h('p', { role: 'status', className: 'tb-notice' }, notice) : null,
+        !sessionId ? h('p', null, tr('noSession')) : state.status === 'loading' ? h('p', { role: 'status' }, tr('loading')) : state.status === 'failed' ? button(tr('retry'), () => refreshState()) : !enabled ? h('div', { className: 'tb-off' }, h('h1', null, tr('disabled')), button(tr('enable'), () => refreshState(true), busy)) : h(React.Fragment, null,
+          h('header', null, h('h1', null, title), runId ? h('div', { className: 'tb-meta' }, status(run?.status), run?.phase ? h('span', null, run.phase) : null, button(tr('records'), (event) => open({ section: 'records' }, event), false, { className: 'tb-quiet' })) : null),
+          runId ? h('nav', { className: 'tb-tabs', role: 'tablist', 'aria-label': tr('context') }, boardTabs.map((key) => button(tr(key), () => { setTab(key); clearDetail(); }, false, { key, id: `tb-tab-${key}`, role: 'tab', 'aria-selected': tab === key, 'aria-controls': 'tb-panel', tabIndex: tab === key ? 0 : -1, onKeyDown: (event) => { const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0; if (delta) { event.preventDefault(); const next = boardTabs[(boardTabs.indexOf(tab) + delta + 4) % 4]; setTab(next); event.currentTarget.parentElement?.querySelector(`#tb-tab-${next}`)?.focus(); } } }))) : null,
+          detail ? renderDetail() : runId ? h('section', { role: 'tabpanel', id: 'tb-panel', 'aria-labelledby': `tb-tab-${tab}` }, !run ? h('p', { role: 'status' }, tr('loading')) : tab === 'overview' ? runOverview() : tab === 'discussion' ? runDiscussion() : tab === 'tasks' ? sectionRows('tasks') : runResults()) : h('section', { className: 'tb-focus' }, h('p', { className: 'tb-muted' }, runs.items.length ? tr('selectRun') : tr('noRuns')), h('div', { className: 'tb-actions' }, button(tr('new'), (event) => open({ section: 'new' }, event), false, { className: 'tb-primary' }))),
+          runs.cursor > 0 || runs.nextCursor !== null ? pagination(runs, listRuns) : null, (runs.errors ?? []).map((entry, index) => h('p', { role: 'alert', className: 'tb-alert', key: index }, `${entry.projectRoot}: ${entry.message}`)))));
+  }
+  return UnifiedBoard;
 }

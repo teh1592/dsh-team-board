@@ -652,42 +652,31 @@ function ruleBody(selector) {
   return SOURCE.slice(open + 1, close);
 }
 
-test('C1（K4）. `.tb-drow` 是**定高** 92px（height，不是 min-height），且三段行高算得出来', () => {
-  const body = ruleBody('.tb-drow {');
-  assert.match(body, /height:\s*92px/, '必须是 height: 92px');
-  assert.doesNotMatch(body, /min-height/, 'min-height 不是定高：内容一换行高度就变了，断言写不出来');
-  assert.match(body, /box-sizing:\s*border-box/, 'border-box 才让 92px 包含内边距（算术才成立）');
-  assert.match(body, /grid-template-rows:\s*34px\s+16px\s+24px/, '三段行高固定');
-  assert.match(body, /overflow:\s*hidden/, '三段内容交给 overflow:hidden + 省略号，高度不让位');
+test('C1. 决定列表采用自然高度和轻分隔', () => {
+  assert.doesNotMatch(SOURCE, /\.tb-drow\s*\{/);
+  assert.match(SOURCE, /\.tb-item\{padding:17px 0;border-bottom:/);
+  assert.doesNotMatch(SOURCE, /height:\s*92px/);
+});
+test('C2. 统一页不引入卡内固定滚动容器', () => {
+  assert.doesNotMatch(SOURCE, /max-height:\s*(220|320|480)px/);
+});
+test('C3. 窄页仍保留原生按钮与自然换行', () => {
+  assert.match(SOURCE, /@media\(max-width:650px\)/);
+  assert.match(SOURCE, /\.tb-actions/);
 });
 
-test('C2（K4/D1）. 区块自身不设 max-height / overflow-y —— 7 条以内不出现滚动容器', () => {
-  const body = ruleBody('.tb-decide {');
-  assert.match(body, /max-height:\s*none/, '不许给区块设 max-height');
-  assert.match(body, /overflow:\s*visible/, '不许给区块设滚动容器');
-  assert.doesNotMatch(body, /overflow-y/, '一旦写了 overflow-y 就多了一个可滚动层');
+test('C4. 旧团队决定纯投影保持，正式页面不再渲染团队决定', () => {
+  const view = P.selectDecisions({ rows: [goodRow()] });
+  assert.equal(view.pending, 1); assert.equal(view.decided, 0);
+  assert.deepEqual(view.filtered, { admission: 0, slots: 0 });
+  assert.doesNotMatch(SOURCE, /const teamDecisionList|const teamWrite/);
 });
 
-test('C3（K4）. 窄窗口仍是两列 + 定高（改成三行会把 92px 破掉）', () => {
-  const index = SOURCE.indexOf('@media (max-width: 780px)');
-  const slice = SOURCE.slice(index, SOURCE.indexOf('}', SOURCE.indexOf('.tb-dbtn { padding: 1px 5px; }', index)));
-  assert.match(slice, /\.tb-drow\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\) 132px/, '窄窗口仍是两列');
-  assert.doesNotMatch(slice, /grid-template-rows:\s*minmax\(0, 1fr\)/, '窄窗口不许退化成单列/多行');
-});
-
-test('C4（Req2/Req4）. 区块的计数只落 data-*：过滤、容量、待办、已拍板四个数都可机读', () => {
-  assert.match(SOURCE, /'data-filtered-count':/, '过滤计数必须可读（Req2）');
-  assert.match(SOURCE, /'data-filtered-admission':/, '准入挡下的条数');
-  assert.match(SOURCE, /'data-filtered-slots':/, '槽位挡下的条数');
-  assert.match(SOURCE, /'data-hidden-capacity':/, '容量收起数（与过滤数是两个数）');
-  assert.match(SOURCE, /'data-pending':/, '待办计数（Req4 拍板后 -1）');
-  assert.match(SOURCE, /'data-decided':/, '已拍板计数');
-});
-
-test('C5（Req2）. 六个槽位在渲染层也是可数的：每个都带 data-slot', () => {
-  for (const key of ['title', 'options', 'impact', 'sourceRef', 'dueAt', 'default']) {
-    assert.match(SOURCE, new RegExp(`'data-slot':\\s*'${key}'`), `渲染层缺槽位 ${key}`);
-  }
+test('C5. 团队决定纯契约仍保留，运行用户选择继续走review写入', () => {
+  assert.deepEqual(P.DECISION_SLOTS, ['title','options','impact','sourceRef','dueAt','default']);
+  assert.deepEqual(P.VERDICTS, ['approve', 'reject', 'hold']);
+  assert.match(SOURCE, /operate\(scope, \{ action: 'decide', runId/);
+  assert.doesNotMatch(SOURCE, /teamWrite\(row/);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════

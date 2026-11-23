@@ -24,7 +24,7 @@ Team Board 在团队台账中提供运行管理页面。阶段输出、修改记
 - **真实机器检查**：执行项目配置的命令，记录退出码、测试数量、日志和代码摘要，识别过期检查结果。
 - **定向返工与局部修订**：沿用问题 ID 复验，按影响清单重做受影响任务。
 - **运行页面**：查看角色执行、意见、决定、任务、检查、报告与分页日志，处理需要用户选择的问题。
-- **历史与用量**：旧任务只读；显式导入时记录来源。用量带会话事件来源，缺失值显示 unknown。
+- **运行历史**：保留各版要求、问题、决定、检查与报告，可按需查看。
 
 ```mermaid
 flowchart LR
@@ -46,32 +46,32 @@ flowchart LR
 
 ![评审与开发插件架构：用户与模型入口、ReviewService、后台编排、Core、DSH 适配层和运行存储](docs/images/review-plugin-architecture.png)
 
-上图为开发设计总览。模块与当前 0.5.0 状态规则见[架构说明](docs/architecture.md)；quick 流程省略图中的前置独立评审。
+上图为开发设计总览。模块与状态规则见[架构说明](docs/architecture.md)；quick 流程省略图中的前置独立评审。
 
 ## 环境
 
 - DeepSeek Harness：已在 **0.2.2-rc.1** 验证。
 - Node.js：22 或更新版本，实际宿主联调使用 **24.22.3**。
 - 新评审需要 DSH 的 Agent、文件系统、工作目录和 subagents 服务，至少启用一个全新上下文 provider，推荐官方 `spawn`；实施检查还需要 subprocess。
-- 会话查询用于中断后的子结果回收和用量来源。旧团队任务板、会议和历史导入另需启用官方 **Agent Teams（智能体团队）**。
+- 会话查询用于中断后的子结果回收。
 - 模型配置沿用 DSH 的设置。本项目不包含模型账号或 API key。
 
-**Team Board 开关与官方 Agent Teams 开关是两项设置。** 只使用新 `review/develop` 流程时可仅启用 subagents；使用完整旧团队功能时还需 Agent Teams。官方组件由 DSH 安装和启用，npm 依赖由插件管理器解析安装。详见[依赖与启用检查](docs/dependencies.md)。
+安装后打开 Team Board 开关即可使用。最小环境和启用步骤见[依赖与启用](docs/dependencies.md)。
 
 ## 安装
 
 ### 从 Release 安装
 
-1. 先按[依赖说明](docs/dependencies.md)确认 DSH 的 subagents、全新上下文 `spawn` provider 和所需功能已启用；使用旧团队功能时另外启用官方 Agent Teams。
-2. 到 [Releases](https://github.com/teh1592/dsh-team-board/releases) 下载 `local-team-board-0.5.0.tgz`。
+1. 按[依赖说明](docs/dependencies.md)启用子智能体与 `spawn`，开发任务同时准备命令执行能力。
+2. 到 [v0.5.1-rc.2 预发布页](https://github.com/teh1592/dsh-team-board/releases/tag/v0.5.1-rc.2)下载 `local-team-board-0.5.1-rc.2.tgz`。
 3. 在 DSH 中让插件管理工具执行 `install_bundle`，`target` 指向下载包的本地绝对路径。也可以通过 Plugin Manager 的安装入口安装该包。
 4. 确认安装结果为 `application: applied`，并检查返回的 warnings。
-5. 打开会话中的团队台账页签，启用插件开关，使用上方的评审与开发运行区。
+5. 打开会话中的 Team Board 页签，启用开关，创建或选择一项任务。
 
 给 DSH 的示例请求：
 
 ```text
-请通过 plugin_manager 安装 C:/Downloads/local-team-board-0.5.0.tgz，检查安装结果。
+请通过 plugin_manager 安装 C:/Downloads/local-team-board-0.5.1-rc.2.tgz，检查安装结果。
 ```
 
 开关初始关闭。安装插件后，仍由用户决定何时启用。
@@ -89,7 +89,7 @@ npm run build:client
 
 ## 开始使用
 
-页面可选择流程、填写需求并启动。让模型启动任务时，可使用 `review_start`：
+在 Team Board 页头创建或选择任务。总览显示当前工作和待选问题，讨论查看意见与决定，任务查看实施及依赖，结果查看检查和报告。通过新需求入口选择流程、填写要求并启动。让模型启动任务时，可使用 `review_start`：
 
 ```json
 {
@@ -162,7 +162,7 @@ npm pack --ignore-scripts
 
 ## 文档
 
-- [依赖与启用检查](docs/dependencies.md)：subagents、spawn、Agent Teams 与两个开关的区别。
+- [依赖与启用](docs/dependencies.md)：最小运行要求与启用步骤。
 - [操作说明](docs/operations.md)：启动、检查、暂停恢复、修订、历史导入。
 - [架构说明](docs/architecture.md)：状态协议、模块和资源生命周期。
 - [兼容与验证](docs/compatibility.md)：已验证环境及限制。

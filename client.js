@@ -1,70 +1,4 @@
-/**
- * @local/team-board —— 浏览器半边（第 9 轮 W8，第 13 轮重做呈现层）
- *
- * 挂点是 `conversation.view`（会话头部那排标签：对话 / 轨迹 / 上下文 / 编队），
- * 不是右侧栏 —— 用户要的是"和 Context 同一层级、点一下就切过去"的独立页面。
- * `order: 40` 排在 dsh-context 的「上下文」(20) 与「编队」(30) 之后。
- *
- * 这个页面只放本插件独有的东西（页面上**不出现任何 token 数字或上下文占比**：
- * 那是 dsh-context 的地盘）。
- *
- * ## 第 13 轮：为什么整块重做，以及重做的原则
- *
- * 用户的判词是「这个台账做的很丑很丑」，而且这是**设计错误，不是实现质量**：
- * 上一版把四种**不同种类的问题**装进了同一个模子（四条等宽通栏卡片），于是
- * 每一块既不够重也不够轻；其中「任务板」更是把 `renderBoard()` 那个**给模型看的
- * 定宽文本**直接塞进 `<pre>` —— 一个渲染器服务两个需求相反的读者，页面必然像终端。
- *
- * 现在的原则（抄的是 dsh-context 的**手法**，不是它的像素）：
- *   ① **形状由读者要问的问题决定**，不由"别人家仪表盘长什么样"决定：
- *        判决（二值+理由）→ banner，占满宽度、置顶、最大
- *        根因（多对多）    → 关系图 + 按码聚合的明细
- *        排名（实体互比）  → 右侧栏，五个数字各自成格、等宽、可纵向对齐
- *        元信息（来源/开关）→ 压进顶栏，最小
- *   ② **颜色只编码"严重度"一个含义**，四档语义色 + 灰阶，全部走主题 token。
- *      dsh-context 还给每个"家族"一个金色角配色；我们**不搬** —— 颜色一旦同时
- *      表示两件事，两个含义一起废。
- *   ③ **等宽只给数字、门禁码、任务 id**；正文一律正常字重。
- *   ④ **空态与不可用态必须长得不一样**，而且要落在**结构**上而不是文案上：
- *      判不了时一个数字都不出现（连 0 也不出现），因为"阻断 0"是一个测量结果，
- *      读不出来的时候我们没有资格给测量结果。
- *   ⑤ **不许静默丢**：不落在任何任务上的根因、被截断的任务条数、读取失败的条目，
- *      全部要留可见痕迹。
- *
- * ## 数据边界（必须记住，否则会写出骗人的界面）
- *
- * 宿主 payload（`host/index.js` 的 `snapshot()`）只有：
- *   `enabled`、`dataSource{kind,status,total,running,reason}`、
- *   `roleLedger{status,roles[]}`（**插件自己的**角色台账，落 storage）；
- *   `gates{status,ok,blockers,warnings,auditWired,phaseKnown,board,tasks?,decisions?}`；
- *   `gates.ledger` —— **会议账本**，四态 `none | ok | unreadable | unavailable`，
- *                     形状以宿主 `ledgerSlot()` 为准（四态字段完全一致，含 `readable`）；
- *   `gates.shadow` —— 门禁覆盖，三个分母 `judgedTasks` / `withInput` / `meetingTasks`；
- *   `tasks[].declarationWarnings` —— D-14 声明警告，**挂在每条任务上**（非空才带），
- *                     不是顶层 `gates.declarationWarnings`。
- *
- * **`payload.roleLedger` 与 `gates.ledger` 是两个东西**（P3-9 之前前者就叫 `ledger`，
- * 与后者同名、只差一层路径 —— 页面作者极易拿错，而拿错不会报错，只会把"这场会开到哪了"
- * 显示成"角色台账读不出来"）。现在两侧不同名，且形状也不同：前者 `{status,roles[]}`，
- * 后者带四态 `state`。
- *
- * **别把 `roleLedger` 读成"开关状态"**：开关在 `payload.enabled` 上。这个名字选的是
- * `roleLedger` 而不是 `stateLedger`，正是因为它是**每角色一行统计**。
- *
- * 两个硬事实：
- *   - **`gates.board` 是给模型的定宽文本，页面绝不解析它**（见 `boardRows` 上面的
- *     长注释：`board.mjs` 的 subject 可以被构造成一条合法假任务行，解析 = 重开注入洞）。
- *   - **blockers 不带 `taskId`**（`delivery.mjs:764` 的 `add()` 只 push `{code,message}`），
- *     只有 warnings 带。所以关系图的左列（阻断）今天大多没有右端点，图会在
- *     `hasGeometry === false` 时**整块不出现**，而不是画一列没线的节点充数。
- *     真要让这张图对阻断生效，需要宿主在 `add()` 里多带一个 `taskId` —— 不在本文件写域。
- *
- * 数据来自宿主路由 `POST /api/team-board/state`（`@Remote` 对纯 JS 第三方插件不可用，
- * remotes 装配在构建期固定 —— 走 dsh-context 的同一骨架）。
- *
- * 纯函数挂在模块导出的 `pure` 上，供 `test/client.test.mjs` 直接单测；它们不碰 DOM、
- * 不读 slot、不测量容器 —— 布局全部是索引算术，所以**可以被断言**。
- */
+/** Team Board: one session-scoped page; business projections stay pure. */
 
 window.__ModuleLoader__.load({
   id: '@local/team-board',
@@ -78,8 +12,57 @@ const text = (value, max = 1200) => typeof value === 'string' ? value.slice(0, m
 function reviewViewModel(run, section = 'run', page = {}) {
   if (!run || typeof run !== 'object') return { state: 'empty', rows: [], nextCursor: null };
   const list = Array.isArray(page.items) ? page.items : [];
-  const rows = list.slice(0, LIMIT).map((item) => ({ id: text(item.id ?? item.executionId ?? item.checkId, 180), title: text(item.objective ?? item.description ?? item.summary ?? item.role ?? item.id ?? item.checkId, 1200), status: text(item.workStatus ?? item.status ?? item.outcome ?? item.choice, 80), applicability: text(item.applicability ?? (item.imported ? 'imported' : undefined), 40), detail: JSON.stringify(item, null, 2).slice(0, 18000), logRef: typeof item.logRef === 'string' ? item.logRef : null, resultRef: typeof item.resultRef === 'string' ? item.resultRef : null }));
+  const rows = list.slice(0, LIMIT).map((item, index) => reviewRow(item, section, (page.cursor ?? 0) + index));
   return { state: 'ready', runId: text(run.runId, 180), revision: Number.isSafeInteger(run.revision) ? run.revision : null, requirementRevision: Number.isSafeInteger(run.requirementRevision) ? run.requirementRevision : null, status: text(run.status, 80), phase: text(run.phase, 80), mode: text(run.mode, 40), preset: text(run.preset, 80), summary: text(run.summary, 1600), diagnostic: typeof run.diagnostic === 'string' ? run.diagnostic.slice(0, 2000) : null, requirement: text(run.requirement, 60000), provenance: run.provenance ?? null, pending: Array.isArray(run.pending) ? run.pending.slice(0, 30) : [], section, rows, content: typeof page.content === 'string' ? page.content : null, nextCursor: Number.isSafeInteger(page.nextCursor) ? page.nextCursor : null, total: Number.isSafeInteger(page.total) ? page.total : null, truncated: list.length > LIMIT || page.truncated === true, usage: run.usage ?? null };
+}
+const strings = (value) => Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : [];
+/** Explicit projection: links never depend on truncated JSON or a title match. */
+function reviewRow(item, section, index = 0) {
+  const refs = [];
+  const add = (target, ids) => { for (const id of strings(ids)) if (!refs.some((ref) => ref.section === target && ref.id === id)) refs.push({ section: target, id }); };
+  add('findings', item.findingIds); add('findings', item.relatedFindingIds);
+  add('decisions', item.decisionIds); add('tasks', item.affectedTaskIds); add('tasks', item.dependsOn); add('tasks', item.taskIds);
+  if (item.sourceExecutionId) add(item.origin === 'machine' ? 'checkResults' : 'executions', [item.sourceExecutionId]);
+  if (item.resolvedByExecutionId) add(item.origin === 'machine' ? 'checkResults' : 'executions', [item.resolvedByExecutionId]);
+  if (item.executionId && !['executions', 'checkResults'].includes(section)) add('executions', [item.executionId]);
+  if (section === 'checkResults' && item.checkId) add('checkSpecs', [item.checkId]);
+  const recordId = item.id ?? item.executionId ?? null;
+  const identity = recordId ?? `${item.checkId ?? section}:${item.executionId ?? item.commandId ?? item.startedAt ?? index}`;
+  return {
+    id: text(recordId ?? item.checkId, 180), key: section === 'artifacts' ? `${identity}:${item.digest ?? item.resultRef ?? index}` : String(identity), recordId, section,
+    title: text(item.objective ?? item.description ?? item.result?.summary ?? item.reason ?? item.summary ?? item.question ?? item.role ?? item.id ?? item.checkId, 1200),
+    status: text(item.workStatus ?? item.status ?? item.outcome ?? item.choice, 80),
+    applicability: text(item.applicability ?? (item.imported ? 'imported' : undefined), 40),
+    role: item.role ?? item.owner ?? '', stageId: item.stageId ?? '', attempt: item.attempt ?? null,
+    requirementRevision: item.requirementRevision ?? null, decisionRevision: item.decisionRevision ?? item.revision ?? null,
+    reviewDecision: item.reviewDecision ?? item.result?.decision ?? null, basis: item.basis ?? '',
+    acceptance: strings(item.acceptance), scopes: strings(item.writeScopes), refs,
+    get detail() { return JSON.stringify(item, null, 2); }, raw: item,
+    logRef: typeof item.logRef === 'string' ? item.logRef : null,
+    resultRef: typeof item.resultRef === 'string' ? item.resultRef : null,
+  };
+}
+/** Only join explicit IDs in the pages already read. No all-run graph or guessed relations. */
+function discussionView(findings = [], decisions = [], tasks = []) {
+  const current = (entry) => entry.applicability !== 'stale';
+  const issues = findings.filter(current).map((finding) => {
+    const linked = decisions.filter((decision) => current(decision) && strings(decision.findingIds).includes(finding.id));
+    return { finding: reviewRow(finding, 'findings'), decisions: linked.map((decision) => ({ decision: reviewRow(decision, 'decisions'), tasks: tasks.filter((task) => current(task) && strings(task.decisionIds).includes(decision.id)).map((task) => reviewRow(task, 'tasks')) })) };
+  });
+  const visibleFindingIds = new Set(findings.filter(current).map((entry) => entry.id));
+  return { issues, otherDecisions: decisions.filter((decision) => current(decision) && !strings(decision.findingIds).some((id) => visibleFindingIds.has(id))).map((entry) => reviewRow(entry, 'decisions')) };
+}
+function roleLedgerMessageKey(ledger) {
+  if (ledger?.status === 'ok') return null;
+  if (ledger?.status === 'empty') return 'ledger.empty';
+  if (ledger?.status === 'disabled') return 'source.disabledHint';
+  return 'ledger.unavailable';
+}
+const boardTabs = ['overview', 'discussion', 'tasks', 'results'];
+function reviewControls(run) {
+  const status = run?.status; const terminal = ['completed', 'cancelled'].includes(status);
+  const questions = (run?.pending ?? []).some((question) => question.status === 'open');
+  return { pause: ['running', 'queued'].includes(status), stop: ['running', 'queued', 'waiting_user', 'error'].includes(status), resume: status === 'paused' && !questions, retry: ['paused', 'error'].includes(status) && !questions, cancel: Boolean(status) && !terminal };
 }
 function createReviewRequestGate() {
   let generation = 0; let current;
@@ -92,117 +75,369 @@ function decodeReviewResponse(envelope) {
   try { return JSON.parse(execution.result.text); } catch { throw new Error('Review command returned invalid JSON'); }
 }
 
-const reviewMessages = {
-  zh: {
-    'review.title': '评审与开发运行', 'review.start': '启动', 'review.requirement': '需求正文', 'review.refresh': '刷新', 'review.empty': '当前会话还没有运行', 'review.loading': '读取运行中…', 'review.error': '操作失败', 'review.mode.review': '只评审', 'review.mode.develop': '实施与验证', 'review.history': '历史任务（只读）', 'review.import': '导入为新运行', 'review.imported': '导入来源', 'review.unknown': '未知', 'review.report': '报告', 'review.logs': '日志', 'review.more': '继续读取', 'review.revise': '修订需求', 'review.reason': '修订原因', 'review.impact': '影响清单 JSON（留空则完整重做）', 'review.submitRevision': '保存修订', 'review.section.run': '运行详情', 'review.section.executions': '角色执行', 'review.section.findings': '意见与问题', 'review.section.decisions': '决定', 'review.section.tasks': '实施任务', 'review.section.checkSpecs': '检查定义', 'review.section.checkResults': '检查结果', 'review.section.report': '报告', 'review.section.history': '操作记录', 'review.section.usage': '运行统计', 'review.pause': '边界暂停', 'review.stop': '立即停止', 'review.resume': '继续', 'review.retry': '重试', 'review.cancel': '取消', 'review.pending': '需要你的选择', 'review.choose': '确认选择', 'review.details': '详细记录', 'review.openLog': '读取日志', 'review.openResult': '读取结果', 'review.noSession': '请打开一个根会话', 'review.readOnly': '历史记录不会自动继续。导入会创建新的运行并保留来源。', 'review.run': '运行', 'review.phase': '阶段', 'review.revision': '需求版本', 'review.storageRevision': '记录版本', 'review.busy': '操作进行中', 'review.lastCommand': '上次命令', 'review.back': '返回分区', 'review.new': '新需求', 'review.previous': '上一页', 'review.partial': '当前显示一页，长内容请继续读取',
-  },
-  en: {
-    'review.title': 'Review and development runs', 'review.start': 'Start', 'review.requirement': 'Requirement', 'review.refresh': 'Refresh', 'review.empty': 'No runs in this session', 'review.loading': 'Loading runs…', 'review.error': 'Operation failed', 'review.mode.review': 'Review only', 'review.mode.develop': 'Implement and verify', 'review.history': 'Historical tasks (read only)', 'review.import': 'Import as a new run', 'review.imported': 'Imported source', 'review.unknown': 'Unknown', 'review.report': 'Report', 'review.logs': 'Logs', 'review.more': 'Load more', 'review.revise': 'Revise requirement', 'review.reason': 'Reason for revision', 'review.impact': 'Impact JSON (empty runs a full review)', 'review.submitRevision': 'Save revision', 'review.section.run': 'Run details', 'review.section.executions': 'Role executions', 'review.section.findings': 'Findings', 'review.section.decisions': 'Decisions', 'review.section.tasks': 'Implementation tasks', 'review.section.checkSpecs': 'Check definitions', 'review.section.checkResults': 'Check results', 'review.section.report': 'Report', 'review.section.history': 'Operation history', 'review.section.usage': 'Run statistics', 'review.pause': 'Pause at boundary', 'review.stop': 'Stop now', 'review.resume': 'Resume', 'review.retry': 'Retry', 'review.cancel': 'Cancel', 'review.pending': 'Your choice is needed', 'review.choose': 'Confirm choice', 'review.details': 'Full record', 'review.openLog': 'Read log', 'review.openResult': 'Read result', 'review.noSession': 'Open a root session', 'review.readOnly': 'History does not resume automatically. Import creates a new run with its source retained.', 'review.run': 'Run', 'review.phase': 'Stage', 'review.revision': 'Requirement version', 'review.storageRevision': 'Record revision', 'review.busy': 'Operation in progress', 'review.lastCommand': 'Last command', 'review.back': 'Back to section', 'review.new': 'New requirement', 'review.previous': 'Previous page', 'review.partial': 'Showing one page; continue to read long content',
-  },
-};
-function createReviewPanel(React, h) {
-  const style = `.tb-review{margin:16px;padding:16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);font:13px/1.55 inherit}.tb-review h2{font-size:16px;margin:0 0 12px}.tb-review h3{font-size:14px;margin:12px 0 8px}.tb-review-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.tb-review label{display:grid;gap:5px;flex:1;min-width:160px}.tb-review textarea,.tb-review input,.tb-review select{font:inherit;box-sizing:border-box;max-width:100%;padding:7px 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}.tb-review textarea{width:100%;min-height:90px;resize:vertical}.tb-review button{font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l3);border-radius:7px;padding:5px 10px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.tb-review button:disabled{opacity:.5;cursor:default}.tb-review button:focus-visible,.tb-review textarea:focus-visible,.tb-review input:focus-visible,.tb-review select:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.tb-review [role=alert]{padding:9px;border-left:3px solid var(--dsw-alias-state-error-primary);white-space:pre-wrap}.tb-review pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;background:var(--dsw-alias-bg-layer-2);padding:10px;border-radius:6px;font-size:12px}.tb-review-item{padding:10px 0;border-top:1px solid var(--dsw-alias-border-l2)}.tb-review-small{font-size:12px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}.tb-review-tabs button[aria-pressed=true]{border-color:var(--dsw-alias-brand-primary)}.tb-review summary{cursor:pointer}.tb-review-list{max-height:220px;overflow:auto}`;
-  const id = () => globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const sections = ['run', 'executions', 'findings', 'decisions', 'tasks', 'checkSpecs', 'checkResults', 'report', 'history', 'usage'];
-  function ReviewPanel({ sessionId, t }) {
-    const [runs, setRuns] = React.useState({ items: [], nextCursor: null });
-    const [runId, setRunId] = React.useState(''); const [section, setSection] = React.useState('run');
-    const [run, setRun] = React.useState(null); const [page, setPage] = React.useState({});
-    const [error, setError] = React.useState(null); const [busy, setBusy] = React.useState(false); const [loading, setLoading] = React.useState(false);
-    const [requirement, setRequirement] = React.useState(''); const [mode, setMode] = React.useState('review'); const [preset, setPreset] = React.useState('standard@2');
-    const [reason, setReason] = React.useState(''); const [impact, setImpact] = React.useState(''); const [revisionDraft, setRevisionDraft] = React.useState('');
-    const [history, setHistory] = React.useState(null); const [artifact, setArtifact] = React.useState(null); const [lastCommand, setLastCommand] = React.useState(null);
-    const gates = React.useRef(null); if (!gates.current) gates.current = { list: createReviewRequestGate(), detail: createReviewRequestGate(), mutation: createReviewRequestGate(), history: createReviewRequestGate() };
-    const context = React.useRef({ sessionId, runId, section }); context.current = { sessionId, runId, section };
-    const mutation = React.useRef(null); const locked = React.useRef(false); const startKey = React.useRef(id());
-    const query = React.useCallback(async (request, token) => {
-      const response = await fetch('/api/team-board/review', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, request }), signal: token.controller.signal });
-      const envelope = await response.json(); return { value: decodeReviewResponse(envelope), commandId: envelope.value?.commandId ?? null };
-    }, [sessionId]);
-    const listRuns = React.useCallback(async (cursor = 0) => {
-      const token = gates.current.list.begin(`${sessionId}:list`);
-      try { const { value } = await query({ action: 'list', cursor }, token); if (gates.current.list.accepts(token)) setRuns({ ...value, cursor }); }
-      catch (problem) { if (gates.current.list.accepts(token)) setError(problem.message); }
-    }, [query, sessionId]);
-    const load = React.useCallback(async (cursor = 0, logRef = null) => {
-      if (!runId) return; setError(null); const token = gates.current.detail.begin(`${sessionId}:${runId}:${section}:${logRef ?? ''}`); setLoading(true);
+
+/** In-page state only. Write identities belong to the operation, never to a visible tab. */
+/** @param {{transport?: typeof fetch, makeId?: () => string}} options */
+function createBoardRequestState({ transport = fetch, makeId = () => globalThis.crypto.randomUUID() } = {}) {
+  const gates = new Map(); const drafts = new Map(); const intents = new Map();
+  let sessionId = ''; let enabled = false; let lifetime = 0;
+  const gate = (name) => { if (!gates.has(name)) gates.set(name, createReviewRequestGate()); return gates.get(name); };
+  const cancel = () => { for (const value of gates.values()) value.cancel(); };
+  const scopeKey = (scope) => `${sessionId}\u0000${scope}`;
+  const post = async (path, body, signal) => {
+    const response = await transport(path, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+    const envelope = await response.json();
+    if (path.endsWith('/review')) {
+      try { return { value: decodeReviewResponse(envelope), commandId: envelope.value?.commandId ?? null }; }
+      catch (error) { error.confirmed = [400, 401, 403, 409].includes(response.status) && envelope?.ok === false || /(?:INVALID_|REVISION_CONFLICT|USER_CHOICE_REQUIRED|RUN_TERMINAL|QUESTION_NOT_FOUND|OPTION_NOT_FOUND|REQUEST_CONFLICT|OPERATION_CONFLICT)/.test(error.message); throw error; }
+    }
+    if (envelope?.ok !== true) throw new Error(envelope?.error?.message ?? `Request failed (${response.status})`);
+    return { value: envelope.value, commandId: null };
+  };
+  return {
+    session(next) { if (next !== sessionId) { cancel(); sessionId = next; enabled = false; lifetime++; } },
+    enabled() { return enabled; },
+    disable() { enabled = false; lifetime++; cancel(); },
+    cancel(name) { if (name) gate(name).cancel(); else cancel(); },
+    draft(scope, defaults = {}) { const key = scopeKey(scope); if (!drafts.has(key)) drafts.set(key, { ...defaults }); return drafts.get(key); },
+    updateDraft(scope, patch) { const key = scopeKey(scope); drafts.set(key, { ...this.draft(scope), ...patch }); return drafts.get(key); },
+    async state(next) {
+      if (next === false) this.disable();
+      const ownedSession = sessionId; const current = gate('state'); const token = current.begin(`${sessionId}:state`);
+      let result;
+      try { result = await post('/api/team-board/state', { sessionId, settingsOnly: true, ...(typeof next === 'boolean' ? { enabled: next } : {}) }, token.controller.signal); }
+      catch (error) { if (!current.accepts(token) || ownedSession !== sessionId) return null; throw error; }
+      if (!current.accepts(token) || ownedSession !== sessionId) return null;
+      enabled = result.value.enabled === true;
+      if (!enabled) for (const [name, value] of gates) if (name !== 'state') value.cancel();
+      return result.value;
+    },
+    async read(name, identity, request) {
+      if (!enabled) return null;
+      const current = gate(name); const token = current.begin(`${sessionId}:${identity}`);
       try {
-        const [summary, detail] = await Promise.all([query({ action: 'read', runId, section: 'run' }, token), query({ action: 'read', runId, section: logRef ? 'artifact' : section, cursor, ...(logRef ? { id: logRef } : {}) }, token)]);
-        if (gates.current.detail.accepts(token)) { setRun(summary.value); setPage({ ...detail.value, cursor }); setArtifact(logRef); }
-      } catch (problem) { if (gates.current.detail.accepts(token)) setError(problem.message); }
-      finally { if (gates.current.detail.accepts(token)) setLoading(false); }
-    }, [query, runId, section, sessionId]);
-    React.useEffect(() => {
-      setRunId(''); setRun(null); setPage({}); setRuns({ items: [], nextCursor: null }); setHistory(null); setError(null); mutation.current = null; locked.current = false; setBusy(false); startKey.current = id(); if (sessionId) listRuns();
-      return () => { for (const gate of Object.values(gates.current)) gate.cancel(); };
-    }, [sessionId, listRuns]);
-    React.useEffect(() => { setPage({}); setRun(null); setArtifact(null); setError(null); setLoading(false); if (runId) load(); return () => gates.current.detail.cancel(); }, [load, runId, section]);
-    const operate = async (request) => {
-      if (locked.current) return; locked.current = true; setBusy(true); setError(null);
-      const owner = { ...context.current }; const fingerprint = JSON.stringify(request);
-      if (!mutation.current || mutation.current.fingerprint !== fingerprint) mutation.current = { fingerprint, payload: { ...request, ...(['start', 'import'].includes(request.action) ? {} : { operationId: id(), expectedRevision: run?.revision }) } };
-      const token = gates.current.mutation.begin(`${owner.sessionId}:${owner.runId}:${owner.section}`);
+        const result = await post('/api/team-board/review', { sessionId, request }, token.controller.signal);
+        return current.accepts(token) && enabled ? result.value : null;
+      } catch (error) { if (!current.accepts(token) || !enabled) return null; throw error; }
+    },
+    /** A failure with unknown outcome retains the exact payload and CAS revision for retry. */
+    async write(scope, request, revision) {
+      if (!enabled) throw new Error('Team Board is disabled');
+      const key = scopeKey(scope); const fingerprint = JSON.stringify(request); let intent = intents.get(key);
+      if (intent?.busy) return { pending: true };
+      if (intent && intent.fingerprint !== fingerprint) throw new Error('Unconfirmed operation: retry it before changing this request');
+      if (!intent) {
+        intent = { fingerprint, busy: false, payload: { ...request, ...(['start', 'import'].includes(request.action) ? { requestId: makeId() } : { operationId: makeId(), expectedRevision: revision }) } };
+        intents.set(key, intent);
+      }
+      intent.busy = true; const ownedSession = sessionId; const ownedLifetime = lifetime;
       try {
-        const payload = mutation.current.payload;
-        const { value, commandId } = await query(payload, token);
-        if (gates.current.mutation.accepts(token) && context.current.sessionId === owner.sessionId && context.current.runId === owner.runId && context.current.section === owner.section) {
-          setLastCommand(commandId); mutation.current = null;
-          if (value.runId) { if (value.runId !== runId) { setRunId(value.runId); setSection('run'); } else await load(); }
-          if (request.action === 'start') startKey.current = id();
-          await listRuns();
-        }
-      } catch (problem) {
-        if (gates.current.mutation.accepts(token) && context.current.sessionId === owner.sessionId && context.current.runId === owner.runId && context.current.section === owner.section) { if (problem.message.includes('REVISION_CONFLICT')) { mutation.current = null; await load(); } setError(problem.message); }
-      } finally { if (gates.current.mutation.accepts(token)) { locked.current = false; setBusy(false); } }
-    };
-    const loadHistory = async (cursor = 0) => {
-      const token = gates.current.history.begin(`${sessionId}:history`);
-      try { const { value } = await query({ action: 'history', cursor }, token); if (gates.current.history.accepts(token)) setHistory({ ...value, cursor }); }
-      catch (problem) { if (gates.current.history.accepts(token)) setError(problem.message); }
-    };
-    const vm = reviewViewModel(run, section, page);
-    const button = (label, fn, disabled = false, extra = {}) => h('button', { type: 'button', onClick: fn, disabled: busy || disabled, ...extra }, label);
-    const viewRows = vm.rows ?? [];
-    return h('section', { className: 'tb-review', 'aria-busy': busy || loading }, h('style', null, style),
-      h('div', { className: 'tb-review-row' }, h('h2', null, t('review.title')), button(t('review.refresh'), () => { listRuns(); if (runId) load(); }), busy ? h('span', { role: 'status' }, t('review.busy')) : null),
-      !sessionId ? h('p', null, t('review.noSession')) : null,
-      error ? h('div', { role: 'alert' }, `${t('review.error')}: ${error}`) : null,
-      h('details', null, h('summary', null, t('review.new')),
-        h('label', null, t('review.requirement'), h('textarea', { value: requirement, onChange: (event) => { setRequirement(event.target.value); startKey.current = id(); } })),
-        h('div', { className: 'tb-review-row' }, h('select', { 'aria-label': t('review.run'), value: mode, onChange: (event) => { setMode(event.target.value); startKey.current = id(); } }, ['review', 'develop'].map((key) => h('option', { value: key, key }, t(`review.mode.${key}`)))),
-          h('select', { 'aria-label': 'Preset', value: preset, onChange: (event) => { setPreset(event.target.value); startKey.current = id(); } }, ['quick@2', 'standard@2'].map((key) => h('option', { value: key, key }, key))),
-          button(t('review.start'), () => operate({ action: 'start', requestId: startKey.current, requirement, mode, preset }), !sessionId || !requirement.trim()))),
-      h('div', { className: 'tb-review-list' }, runs.items.length ? runs.items.map((item) => button(`${item.runId} · ${item.status} · ${item.phase}`, () => { setRunId(item.runId); setSection('run'); setRevisionDraft(''); }, false, { key: item.runId, 'aria-pressed': item.runId === runId })) : h('p', null, t('review.empty'))),
-      (runs.errors ?? []).map((entry, index) => h('div', { role: 'alert', key: index }, `${entry.projectRoot}: ${entry.message}`)),
-      runs.cursor > 0 ? button(t('review.previous'), () => listRuns(Math.max(0, runs.cursor - 20))) : null,
-      runs.nextCursor !== null ? button(t('review.more'), () => listRuns(runs.nextCursor)) : null,
-      loading ? h('p', { role: 'status' }, t('review.loading')) : null,
-      vm.state === 'ready' ? h('div', null,
-        h('div', { className: 'tb-review-small' }, `${vm.runId} · ${vm.mode} · ${vm.preset} · ${t('review.phase')}: ${vm.phase} · ${t('review.revision')}: ${vm.requirementRevision ?? t('review.unknown')} · ${t('review.storageRevision')}: ${vm.revision ?? t('review.unknown')}`),
-        h('p', null, vm.summary), vm.diagnostic ? h('pre', null, vm.diagnostic) : null,
-        vm.provenance ? h('details', null, h('summary', null, t('review.imported')), h('pre', null, JSON.stringify(vm.provenance, null, 2))) : null,
-        h('div', { className: 'tb-review-row' }, ['pause', 'stop', 'resume', 'retry', 'cancel'].map((action) => button(t(`review.${action}`), () => operate({ action, runId }), ['completed', 'cancelled'].includes(vm.status), { key: action }))),
-        (vm.pending ?? []).filter((question) => question.status === 'open').map((question) => h('div', { className: 'tb-review-item', key: question.id }, h('strong', null, t('review.pending')), h('p', null, question.question), question.options.map((option) => button(`${t('review.choose')}: ${option.label}`, () => operate({ action: 'decide', runId, questionId: question.id, optionId: option.id }), false, { key: option.id, title: option.description })))),
-        h('div', { className: 'tb-review-row tb-review-tabs' }, sections.map((key) => button(t(`review.section.${key}`), () => { setSection(key); setArtifact(null); }, false, { key, 'aria-pressed': section === key && !artifact }))),
-        artifact ? button(t('review.back'), () => load()) : null,
-        vm.content !== null ? h('pre', null, vm.content) : section === 'run' ? h('pre', null, vm.requirement) : section === 'usage' ? h('pre', null, JSON.stringify(page, null, 2)) : viewRows.map((row, index) => h('article', { className: 'tb-review-item', key: `${row.id}-${index}` }, h('strong', null, row.id), h('span', { className: 'tb-review-small' }, ` · ${row.status} · ${row.applicability}`), h('p', null, row.title), h('details', null, h('summary', null, t('review.details')), h('pre', null, row.detail)), row.logRef ? button(t('review.openLog'), () => load(0, row.logRef)) : null, row.resultRef ? button(t('review.openResult'), () => load(0, row.resultRef)) : null)),
-        page.cursor > 0 ? button(t('review.previous'), () => load(Math.max(0, page.cursor - (vm.content === null ? 20 : 16000)), artifact)) : null,
-        vm.truncated ? h('p', { className: 'tb-review-small' }, t('review.partial')) : null,
-        vm.nextCursor !== null ? button(t('review.more'), () => load(vm.nextCursor, artifact)) : null,
-        h('details', null, h('summary', null, t('review.revise')), h('label', null, t('review.requirement'), h('textarea', { value: revisionDraft || '', placeholder: vm.requirement, onChange: (event) => setRevisionDraft(event.target.value) })), h('label', null, t('review.reason'), h('input', { value: reason, onChange: (event) => setReason(event.target.value) })), h('label', null, t('review.impact'), h('textarea', { value: impact, onChange: (event) => setImpact(event.target.value) })), button(t('review.submitRevision'), () => { try { operate({ action: 'revise', runId, requirement: revisionDraft || vm.requirement, reason, ...(impact.trim() ? { impact: JSON.parse(impact) } : {}) }); } catch (problem) { setError(problem.message); } }, !reason.trim())),
-      ) : null,
-      h('details', null, h('summary', { onClick: () => { if (!history) loadHistory(); } }, t('review.history')), h('p', null, t('review.readOnly')), history?.reason ? h('p', null, history.reason) : null,
-        (history?.items ?? []).map((item) => h('article', { className: 'tb-review-item', key: item.id }, h('strong', null, `${item.id} · ${item.title}`), h('pre', null, item.content), item.truncated ? h('p', { className: 'tb-review-small' }, t('review.partial')) : null, button(t('review.import'), () => operate({ action: 'import', historyId: item.id, requestId: `import-${item.digest}-${startKey.current}`, preset, mode })))),
-        history?.cursor > 0 ? button(t('review.previous'), () => loadHistory(Math.max(0, history.cursor - 20))) : null,
-        history?.nextCursor !== null && history?.nextCursor !== undefined ? button(t('review.more'), () => loadHistory(history.nextCursor)) : null),
-      lastCommand ? h('div', { className: 'tb-review-small' }, `${t('review.lastCommand')}: ${lastCommand}`) : null);
-  }
-  return ReviewPanel;
+        // No read gate here: changing a tab cannot abandon an accepted write or leave its lock held.
+        const result = await post('/api/team-board/review', { sessionId: ownedSession, request: intent.payload });
+        if (intents.get(key) === intent) intents.delete(key);
+        return { ...result, sessionId: ownedSession, scope, visible: ownedSession === sessionId && ownedLifetime === lifetime && enabled };
+      } catch (error) {
+        // A revision conflict confirms no write occurred; input stays in the scoped draft.
+        if (error.confirmed && intents.get(key) === intent) intents.delete(key);
+        throw error;
+      } finally { intent.busy = false; }
+    },
+    pending(scope) { return intents.get(scopeKey(scope))?.payload ?? null; },
+    /** Team decisions retain their own service semantics and user-only route. */
+    async decide(body) {
+      if (!enabled) throw new Error('Team Board is disabled');
+      const owner = sessionId; const generation = lifetime;
+      const result = await post('/api/team-board/decide', { sessionId: owner, ...body });
+      return { value: result.value, visible: owner === sessionId && generation === lifetime && enabled, sessionId: owner };
+    },
+  };
 }
 
-return { reviewMessages, createReviewPanel, reviewViewModel, createReviewRequestGate, decodeReviewResponse };
+/** Run the page's bounded asynchronous read continuation in order. */
+async function continueBoardReads(isCurrent, steps) {
+  for (const step of steps) {
+    if (!isCurrent()) return false;
+    if (await step() === false) return false;
+  }
+  return isCurrent();
+}
+
+/** Reference history keeps the originating page/cursor intact, including long text chunks. */
+function createReferenceStack() {
+  const stack = [];
+  return { open(ref) { stack.push({ ...ref, cursor: ref.cursor ?? 0 }); return this.current(); }, current() { return stack.at(-1) ?? null; }, page(cursor) { if (stack.length) stack[stack.length - 1] = { ...stack.at(-1), cursor }; return this.current(); }, back() { stack.pop(); return this.current(); }, clear() { stack.length = 0; }, depth() { return stack.length; } };
+}
+
+const boardStyles = `
+.tb-page{height:100%;overflow:auto;box-sizing:border-box;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:14px;line-height:1.65;font-family:inherit}
+.tb-page *{box-sizing:border-box}.tb-page h1,.tb-page h2,.tb-page h3,.tb-page p{margin:0}.tb-page h1{font-size:27px;line-height:1.4;letter-spacing:-.6px;font-weight:650;overflow-wrap:anywhere}.tb-page h2{font-size:18px;font-weight:600;line-height:1.5}.tb-page h3{font-size:14px;font-weight:600}
+.tb-page button,.tb-page input,.tb-page select,.tb-page textarea{font:inherit;color:inherit}.tb-page button{cursor:pointer;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:6px 11px;background:var(--dsw-alias-bg-base);line-height:1.4}.tb-page button:hover{background:var(--dsw-alias-bg-layer-1)}.tb-page button:disabled{opacity:.5;cursor:default}.tb-page :is(button,select,input,textarea,summary):focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:3px}.tb-page .tb-primary{border-color:var(--dsw-alias-brand-primary);font-weight:600}.tb-page .tb-link{padding:0;border:0;background:none;text-align:left;color:inherit}.tb-page .tb-link:hover{text-decoration:underline;text-underline-offset:3px}.tb-page .tb-quiet{padding:4px 7px;border:0;background:none;color:var(--dsw-alias-label-secondary)}
+.tb-toolbar{min-height:52px;padding:12px 28px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid var(--dsw-alias-border-l1)}.tb-toolbar select{max-width:min(500px,65vw);border:0;background:var(--dsw-alias-bg-base);font-size:13px}.tb-toolbar-actions,.tb-actions,.tb-meta,.tb-related{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.tb-toolbar-actions{gap:8px}.tb-main{max-width:850px;margin:0 auto;padding:48px 30px 72px}.tb-meta{margin-top:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}.tb-muted{color:var(--dsw-alias-label-secondary);font-size:12px;overflow-wrap:anywhere}.tb-description{margin-top:9px!important;color:var(--dsw-alias-label-secondary);max-width:660px;white-space:pre-wrap}
+.tb-tabs{display:flex;gap:27px;border-bottom:1px solid var(--dsw-alias-border-l1);margin:30px 0 32px}.tb-tabs button{border:0;border-radius:0;background:none;padding:0 0 12px;color:var(--dsw-alias-label-secondary);font-size:13px}.tb-tabs button[aria-selected=true]{color:var(--dsw-alias-label-primary);font-weight:600;box-shadow:0 2px 0 var(--dsw-alias-label-primary)}
+.tb-focus{padding:5px 0 30px}.tb-focus>p{margin-top:9px;font-size:13px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap}.tb-actions{margin-top:20px}.tb-section-head{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:13px}.tb-section-head h2{font-size:14px}.tb-section{margin-top:26px}.tb-list{border-top:1px solid var(--dsw-alias-border-l1)}.tb-item{padding:17px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}.tb-item>p{margin-top:7px;white-space:pre-wrap;font-size:13px}.tb-item-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.tb-item-head>button{font-size:14px}.tb-status{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap}.tb-status:before{content:'';width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-idle-primary);flex:none}.tb-status[data-tone=active]:before{background:var(--dsw-alias-brand-primary)}.tb-status[data-tone=success]:before{background:var(--dsw-alias-state-success-primary)}.tb-status[data-tone=warn]:before{background:var(--dsw-alias-state-warn-primary)}.tb-status[data-tone=danger]:before{background:var(--dsw-alias-state-error-primary)}
+.tb-related{margin-top:14px;font-size:12px;gap:10px}.tb-related button{font-size:12px}.tb-choice{display:grid;gap:5px;margin-top:14px}.tb-choice button{padding:12px 0;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);border-radius:0;text-align:left}.tb-choice small{display:block;color:var(--dsw-alias-label-secondary);margin-top:3px}.tb-decision{margin-top:17px;padding-left:15px;border-left:2px solid var(--dsw-alias-border-l1)}.tb-decision .tb-actions{margin-top:12px;gap:8px}.tb-decision p{font-size:13px;white-space:pre-wrap}.tb-page summary{cursor:pointer;font-size:12px;color:var(--dsw-alias-label-secondary)}.tb-page details>div,.tb-page details>p,.tb-page details>pre{margin-top:10px}
+.tb-page pre{font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0}.tb-page code{font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.tb-page label{display:grid;gap:6px;font-size:12px;margin:14px 0}.tb-page textarea,.tb-page input,.tb-page select{border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-base);padding:8px 10px;max-width:100%}.tb-page textarea{width:100%;min-height:130px;resize:vertical}.tb-form-row{display:flex;gap:16px;align-items:end;flex-wrap:wrap}.tb-form-row label{flex:1;min-width:120px}.tb-alert{border-left:2px solid var(--dsw-alias-state-error-primary);padding:8px 12px;margin:14px 0;white-space:pre-wrap;font-size:13px}.tb-notice{font-size:12px;margin:12px 0;color:var(--dsw-alias-label-secondary)}.tb-pagination{display:flex;align-items:center;gap:12px;margin:16px 0;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.tb-detail{border-top:1px solid var(--dsw-alias-border-l1);padding-top:20px}.tb-detail-bar{display:flex;justify-content:space-between;gap:16px;margin-bottom:24px}.tb-detail dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px;font-size:12px}.tb-detail dt{color:var(--dsw-alias-label-secondary)}.tb-detail dd{margin:0;overflow-wrap:anywhere}.tb-detail ul{padding-left:20px;font-size:13px}.tb-detail h3{margin-top:22px}.tb-off{padding-top:35px}.tb-table-wrap{overflow-x:auto}.tb-page table{width:100%;border-collapse:collapse;min-width:450px;font-size:12px}.tb-page th{text-align:left;color:var(--dsw-alias-label-secondary);font-weight:400;padding:0 12px 13px;border-bottom:1px solid var(--dsw-alias-border-l1)}.tb-page td{padding:17px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);vertical-align:top}.tb-page :is(td,th):first-child{padding-left:0}.tb-page :is(td,th):last-child{padding-right:0}.tb-page td button{font-size:13px}.tb-page td small{display:block;margin-top:4px;color:var(--dsw-alias-label-secondary)}
+@media(max-width:650px){.tb-toolbar{padding:12px 18px;align-items:flex-start;flex-wrap:wrap}.tb-main{padding:32px 20px 60px}.tb-page h1{font-size:24px}.tb-tabs{gap:24px;margin-top:26px}.tb-detail dl{grid-template-columns:85px minmax(0,1fr)}}
+`;
+
+const boardMessages = {
+  zh: {
+    'boardUi.title': 'Team Board', 'boardUi.context': '当前运行', 'boardUi.selectRun': '选择运行', 'boardUi.noRuns': '暂无运行',
+    'boardUi.overview': '总览', 'boardUi.discussion': '讨论', 'boardUi.tasks': '任务', 'boardUi.results': '结果',
+    'boardUi.records': '记录', 'boardUi.new': '新需求', 'boardUi.refresh': '刷新', 'boardUi.enabled': '启用 Team Board',
+    'boardUi.disabled': '已关闭', 'boardUi.enable': '启用', 'boardUi.loading': '正在读取…', 'boardUi.empty': '暂无记录',
+    'boardUi.error': '读取或操作失败', 'boardUi.noSession': '请先打开会话', 'boardUi.back': '返回', 'boardUi.close': '关闭详情',
+    'boardUi.more': '下一页', 'boardUi.previous': '上一页', 'boardUi.range': '已读 {start}–{end} / {total}', 'boardUi.partial': '当前仅显示已读取范围',
+    'boardUi.requirement': '需求', 'boardUi.mode': '方式', 'boardUi.preset': '评审档位', 'boardUi.review': '只评审', 'boardUi.develop': '实施与验证',
+    'boardUi.start': '启动', 'boardUi.pending': '需要你的选择', 'boardUi.confirm': '确认选择', 'boardUi.details': '详情',
+    'boardUi.pause': '边界暂停', 'boardUi.stop': '立即停止', 'boardUi.resume': '继续', 'boardUi.retry': '重试', 'boardUi.cancel': '取消运行',
+    'boardUi.controls': '运行操作', 'boardUi.revise': '补充要求', 'boardUi.reason': '修改原因', 'boardUi.impact': '影响清单 JSON（留空则完整重做）', 'boardUi.saveRevision': '保存修订',
+    'boardUi.history': '会话历史任务', 'boardUi.import': '导入为新运行', 'boardUi.importNote': '历史记录只读；导入创建新的运行并保留来源。',
+    'boardUi.operationRetry': '重试上次操作', 'boardUi.busy': '操作进行中…', 'boardUi.savedElsewhere': '操作已确认，可在对应运行查看。',
+    'boardUi.findings': '意见', 'boardUi.decisions': '决定', 'boardUi.executions': '角色执行', 'boardUi.checkResults': '机器检查', 'boardUi.verifier': '独立复查',
+    'boardUi.checkSpecs': '检查定义', 'boardUi.report': '报告', 'boardUi.artifacts': '执行产物', 'boardUi.questions': '用户事项', 'boardUi.usage': '运行统计',
+    'boardUi.missing': '缺少关联记录', 'boardUi.noRelation': '这条记录尚未提供关联', 'boardUi.related': '相关', 'boardUi.acceptance': '完成条件',
+    'boardUi.scopes': '写入范围', 'boardUi.owner': '负责人', 'boardUi.source': '来源', 'boardUi.dependencies': '依赖', 'boardUi.declared': '申报改动',
+    'boardUi.raw': '原始记录', 'boardUi.log': '日志', 'boardUi.result': '结果记录', 'boardUi.version': '需求版本', 'boardUi.execution': '执行身份',
+    'boardUi.meeting': '会议', 'boardUi.gates': '门禁', 'boardUi.warnings': '警告', 'boardUi.coverage': '覆盖', 'boardUi.roles': '角色记录',
+    'boardUi.teamTasksUnavailable': '宿主未提供结构化任务', 'boardUi.teamTaskDetails': '宿主当前仅提供任务标题、归属、依赖、写域与申报记录。',
+    'boardUi.current': '当前情况', 'boardUi.teamSource': '宿主团队', 'boardUi.runSource': '评审与开发运行', 'boardUi.task': '任务', 'boardUi.status': '状态',
+    'boardUi.phase': '阶段', 'boardUi.revision': '记录版本', 'boardUi.checkSpec': '检查定义', 'boardUi.baseline': '基线', 'boardUi.noVerifier': '已读范围内暂无独立复查记录',
+    'boardUi.state.queued': '排队中', 'boardUi.state.running': '进行中', 'boardUi.state.waiting_user': '等待选择', 'boardUi.state.paused': '已暂停',
+    'boardUi.state.completed': '已完成', 'boardUi.state.cancelled': '已取消', 'boardUi.state.error': '执行出错', 'boardUi.state.pending': '待开始',
+    'boardUi.state.in_progress': '进行中', 'boardUi.state.failed': '失败', 'boardUi.state.passed': '通过', 'boardUi.state.unknown': '未知', 'boardUi.state.skipped': '已跳过',
+    'boardUi.state.interrupted': '已中断', 'boardUi.state.current': '有效', 'boardUi.state.stale': '历史版本', 'boardUi.state.accept': '接受', 'boardUi.state.needs_revision': '需要修改',
+    'boardUi.state.reject': '未采用', 'boardUi.state.abstain': '未形成结论', 'boardUi.state.adopt': '采用', 'boardUi.state.defer': '暂缓', 'boardUi.state.alternative': '采用替代方案', 'boardUi.state.dismiss': '不采纳',
+  },
+  en: {
+    'boardUi.title': 'Team Board', 'boardUi.context': 'Current run', 'boardUi.selectRun': 'Select a run', 'boardUi.noRuns': 'No runs yet',
+    'boardUi.overview': 'Overview', 'boardUi.discussion': 'Discussion', 'boardUi.tasks': 'Tasks', 'boardUi.results': 'Results',
+    'boardUi.records': 'Activity', 'boardUi.new': 'New requirement', 'boardUi.refresh': 'Refresh', 'boardUi.enabled': 'Enable Team Board',
+    'boardUi.disabled': 'Disabled', 'boardUi.enable': 'Enable', 'boardUi.loading': 'Loading…', 'boardUi.empty': 'No records yet',
+    'boardUi.error': 'Read or operation failed', 'boardUi.noSession': 'Open a session first', 'boardUi.back': 'Back', 'boardUi.close': 'Close details',
+    'boardUi.more': 'Next page', 'boardUi.previous': 'Previous page', 'boardUi.range': 'Read {start}–{end} / {total}', 'boardUi.partial': 'Showing the loaded range only',
+    'boardUi.requirement': 'Requirement', 'boardUi.mode': 'Mode', 'boardUi.preset': 'Review preset', 'boardUi.review': 'Review only', 'boardUi.develop': 'Implement and verify',
+    'boardUi.start': 'Start', 'boardUi.pending': 'Your choice is needed', 'boardUi.confirm': 'Confirm choice', 'boardUi.details': 'Details',
+    'boardUi.pause': 'Pause at boundary', 'boardUi.stop': 'Stop now', 'boardUi.resume': 'Resume', 'boardUi.retry': 'Retry', 'boardUi.cancel': 'Cancel run',
+    'boardUi.controls': 'Run actions', 'boardUi.revise': 'Update requirement', 'boardUi.reason': 'Reason for change', 'boardUi.impact': 'Impact JSON (empty runs a full review)', 'boardUi.saveRevision': 'Save revision',
+    'boardUi.history': 'Session task history', 'boardUi.import': 'Import as a new run', 'boardUi.importNote': 'History is read only. Import creates a new run and retains its source.',
+    'boardUi.operationRetry': 'Retry last operation', 'boardUi.busy': 'Operation in progress…', 'boardUi.savedElsewhere': 'Operation confirmed. Open its run to view it.',
+    'boardUi.findings': 'Findings', 'boardUi.decisions': 'Decisions', 'boardUi.executions': 'Role executions', 'boardUi.checkResults': 'Machine checks', 'boardUi.verifier': 'Independent verification',
+    'boardUi.checkSpecs': 'Check definitions', 'boardUi.report': 'Report', 'boardUi.artifacts': 'Execution artifacts', 'boardUi.questions': 'User questions', 'boardUi.usage': 'Run statistics',
+    'boardUi.missing': 'Linked record is missing', 'boardUi.noRelation': 'This record has no recorded links yet', 'boardUi.related': 'Related', 'boardUi.acceptance': 'Acceptance criteria',
+    'boardUi.scopes': 'Write scopes', 'boardUi.owner': 'Owner', 'boardUi.source': 'Source', 'boardUi.dependencies': 'Dependencies', 'boardUi.declared': 'Declared changes',
+    'boardUi.raw': 'Raw record', 'boardUi.log': 'Log', 'boardUi.result': 'Result record', 'boardUi.version': 'Requirement version', 'boardUi.execution': 'Execution identity',
+    'boardUi.meeting': 'Meeting', 'boardUi.gates': 'Gates', 'boardUi.warnings': 'Warnings', 'boardUi.coverage': 'Coverage', 'boardUi.roles': 'Role records',
+    'boardUi.teamTasksUnavailable': 'The host did not supply structured tasks', 'boardUi.teamTaskDetails': 'The host currently supplies task titles, ownership, dependencies, scopes and declarations.',
+    'boardUi.current': 'Current status', 'boardUi.teamSource': 'Host team', 'boardUi.runSource': 'Review and development run', 'boardUi.task': 'Task', 'boardUi.status': 'Status',
+    'boardUi.phase': 'Stage', 'boardUi.revision': 'Record revision', 'boardUi.checkSpec': 'Check definition', 'boardUi.baseline': 'Baseline', 'boardUi.noVerifier': 'No independent verification in the loaded range',
+    'boardUi.state.queued': 'Queued', 'boardUi.state.running': 'In progress', 'boardUi.state.waiting_user': 'Awaiting choice', 'boardUi.state.paused': 'Paused',
+    'boardUi.state.completed': 'Completed', 'boardUi.state.cancelled': 'Cancelled', 'boardUi.state.error': 'Execution error', 'boardUi.state.pending': 'Pending',
+    'boardUi.state.in_progress': 'In progress', 'boardUi.state.failed': 'Failed', 'boardUi.state.passed': 'Passed', 'boardUi.state.unknown': 'Unknown', 'boardUi.state.skipped': 'Skipped',
+    'boardUi.state.interrupted': 'Interrupted', 'boardUi.state.current': 'Current', 'boardUi.state.stale': 'Historical version', 'boardUi.state.accept': 'Accepted', 'boardUi.state.needs_revision': 'Needs revision',
+    'boardUi.state.reject': 'Rejected', 'boardUi.state.abstain': 'No conclusion', 'boardUi.state.adopt': 'Adopted', 'boardUi.state.defer': 'Deferred', 'boardUi.state.alternative': 'Alternative adopted', 'boardUi.state.dismiss': 'Dismissed',
+  },
+};
+
+const reviewMessages = boardMessages;
+
+function createReviewPanel(React, h) {
+  const uid = () => globalThis.crypto?.randomUUID?.() ?? `board-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const sessionStates = new Map();
+  function RecordDetails({ value, t }) {
+    const [opened, setOpened] = React.useState(false); const [cursor, setCursor] = React.useState(0);
+    const content = React.useMemo(() => opened ? JSON.stringify(value, null, 2) ?? '' : '', [opened, value]);
+    return h('details', { onToggle: (event) => setOpened(event.currentTarget.open) }, h('summary', null, t('boardUi.raw')),
+      opened ? h('div', null, h('pre', null, content.slice(cursor, cursor + 16000)), h('div', { className: 'tb-pagination' },
+        cursor ? h('button', { type: 'button', onClick: () => setCursor(Math.max(0, cursor - 16000)) }, t('boardUi.previous')) : null,
+        cursor + 16000 < content.length ? h('button', { type: 'button', onClick: () => setCursor(cursor + 16000) }, t('boardUi.more')) : null)) : null);
+  }
+  function UnifiedBoard({ sessionId, t }) {
+    const [, redraw] = React.useState(0); const bump = () => redraw((value) => value + 1);
+    const requestRef = React.useRef(null); if (!requestRef.current) { if (!sessionStates.has(sessionId)) sessionStates.set(sessionId, createBoardRequestState({ makeId: uid })); requestRef.current = sessionStates.get(sessionId); }
+    const requests = requestRef.current; requests.session(sessionId ?? '');
+    const [state, setState] = React.useState({ status: 'loading', value: null });
+    const [runs, setRuns] = React.useState({ items: [], cursor: 0, total: null, nextCursor: null });
+    const [runId, setRunId] = React.useState(''); const [tab, setTab] = React.useState('overview');
+    const [run, setRun] = React.useState(null); const [pages, setPages] = React.useState({});
+    const [detail, setDetail] = React.useState(null); const [detailPage, setDetailPage] = React.useState(null);
+    const [error, setError] = React.useState(null); const [notice, setNotice] = React.useState(null); const [busy, setBusy] = React.useState(false);
+    const refs = React.useRef(null); if (!refs.current) refs.current = createReferenceStack();
+    const returnFocus = React.useRef(null); const detailHeading = React.useRef(null);
+    const current = React.useRef(null);
+    if (!current.current || current.current.sessionId !== sessionId || current.current.runId !== runId || current.current.tab !== tab) current.current = { sessionId, runId, tab };
+    const refreshGeneration = React.useRef(0);
+    const scope = runId ? `run:${runId}` : 'new';
+    const draft = requests.draft('new', { requirement: '', mode: 'review', preset: 'standard@2' });
+    const revisionDraft = requests.draft(scope, { requirement: '', requirementEdited: false, reason: '', impact: '' });
+    const update = (key, patch) => { requests.updateDraft(key, patch); bump(); };
+    const tr = (key, vars) => t(`boardUi.${key}`, vars);
+    const label = (value) => { const result = tr(`state.${value}`); return result === `boardUi.state.${value}` ? value : result; };
+    const tone = (value) => ['error', 'failed', 'reject'].includes(value) ? 'danger' : ['waiting_user', 'paused', 'needs_revision', 'interrupted'].includes(value) ? 'warn' : ['running', 'queued', 'in_progress'].includes(value) ? 'active' : ['passed', 'accept', 'completed'].includes(value) ? 'success' : 'plain';
+    const status = (value) => h('span', { className: 'tb-status', 'data-tone': tone(value) }, label(value ?? 'unknown'));
+    const button = (text, fn, disabled = false, props = {}) => h('button', { type: 'button', disabled, onClick: fn, ...props }, text);
+    const link = (text, ref, props = {}) => button(text, (event) => open(ref, event), false, { className: 'tb-link', ...props });
+    const json = (value) => h('pre', null, JSON.stringify(value, null, 2));
+    const fail = (problem) => { if (problem?.name !== 'AbortError') setError(problem.message ?? String(problem)); };
+    const ownerIsCurrent = (owner) => current.current.sessionId === owner.sessionId && current.current.runId === owner.runId && requests.enabled();
+    const readSection = async (section, cursor = 0, targetRun = runId) => {
+      const owner = { sessionId, runId: targetRun };
+      if (!ownerIsCurrent(owner)) return;
+      try {
+        const page = await requests.read(`section:${section}`, `${targetRun}:${section}:${cursor}`, { action: 'read', runId: targetRun, section, cursor });
+        if (page && ownerIsCurrent(owner)) setPages((previous) => ({ ...previous, [section]: { ...page, cursor } }));
+      } catch (problem) { if (ownerIsCurrent(owner)) { setPages((previous) => ({ ...previous, [section]: { error: problem.message, cursor } })); fail(problem); } }
+    };
+    const readRun = async (targetRun = runId) => {
+      if (!targetRun || !ownerIsCurrent({ sessionId, runId: targetRun })) return;
+      try { const value = await requests.read('summary', `${targetRun}:run`, { action: 'read', runId: targetRun, section: 'run' }); if (value && current.current.runId === targetRun) setRun(value); }
+      catch (problem) { if (current.current.runId === targetRun) fail(problem); }
+    };
+    const listRuns = async (cursor = 0) => {
+      try { const value = await requests.read('list', `list:${cursor}`, { action: 'list', cursor }); if (value) setRuns({ ...value, cursor }); }
+      catch (problem) { fail(problem); }
+    };
+    const refreshState = async (next) => {
+      const owner = current.current; const generation = ++refreshGeneration.current;
+      const sameRefresh = () => current.current === owner && refreshGeneration.current === generation;
+      setError(null);
+      if (next === false) { requests.disable(); setState((previous) => ({ ...previous, value: { ...previous.value, enabled: false } })); }
+      try {
+        await continueBoardReads(sameRefresh, [async () => {
+          const value = await requests.state(next); if (!value) return false;
+          setState({ status: 'ready', value });
+          if (!value.enabled) { if (sameRefresh()) { setRun(null); setPages({}); setDetail(null); refs.current.clear(); } return false; }
+        }, () => listRuns(), () => runId ? readRun() : undefined, () => runId ? loadTab(tab) : undefined]);
+      } catch (problem) { if (sameRefresh()) { requests.disable(); setState({ status: 'failed', value: null }); fail(problem); } }
+    };
+    React.useEffect(() => {
+      if (sessionId) refreshState(); else setState({ status: 'ready', value: null });
+      return () => { requests.disable(); };
+    }, [sessionId]);
+    const loadTab = async (selected) => {
+      if (!runId || !ownerIsCurrent({ sessionId, runId }) || current.current.tab !== selected) return;
+      const sections = selected === 'overview' ? ['tasks'] : selected === 'discussion' ? ['findings', 'decisions', 'executions', 'tasks'] : selected === 'tasks' ? ['tasks'] : ['checkResults', 'executions'];
+      // Independent gates for the three bounded pages: one completion cannot cancel another.
+      await Promise.all(sections.map((section) => readSection(section, pages[section]?.cursor ?? 0)));
+    };
+    React.useEffect(() => {
+      setError(null); setDetail(null); setDetailPage(null); refs.current.clear(); requests.cancel('reference');
+      if (runId && requests.enabled()) { readRun(); loadTab(tab); }
+      return () => { requests.cancel('summary'); for (const key of ['tasks', 'findings', 'decisions', 'executions', 'checkResults']) requests.cancel(`section:${key}`); };
+    }, [runId, tab, state.value?.enabled]);
+    React.useEffect(() => { if (detail) detailHeading.current?.focus(); }, [detail]);
+    const selectContext = (next) => { setRunId(next); setRun(null); setPages({}); setTab('overview'); setError(null); setNotice(null); };
+    const queryDetail = async (ref) => {
+      setDetailPage(null); if (!ref || ref.local || ['new', 'records', 'revise'].includes(ref.section)) return;
+      const target = runId;
+      try {
+        const page = await requests.read('reference', `${target}:${ref.section}:${ref.id ?? ''}:${ref.cursor}`, { action: 'read', runId: target, section: ref.section, cursor: ref.cursor, ...(ref.id ? { id: ref.id } : {}) });
+        if (page && current.current.runId === target) setDetailPage({ ...page, cursor: ref.cursor });
+      } catch (problem) { fail(problem); }
+    };
+    const open = (ref, event) => { if (!refs.current.depth()) returnFocus.current = event?.currentTarget ?? null; const next = refs.current.open(ref); setDetail(next); setError(null); queryDetail(next); };
+    const close = () => { requests.cancel('reference'); const next = refs.current.back(); setDetail(next); setError(null); if (next) queryDetail(next); else { setDetailPage(null); returnFocus.current?.focus?.(); } };
+    const clearDetail = () => { refs.current.clear(); setDetail(null); setDetailPage(null); requests.cancel('reference'); returnFocus.current?.focus?.(); };
+    const operate = async (intentScope, request) => {
+      if (busy) return; const owner = { ...current.current }; setBusy(true); setError(null);
+      try {
+        const result = await requests.write(intentScope, request, run?.revision);
+        if (result.pending || !result.visible) return;
+        if (request.action === 'start') { clearDetail(); selectContext(result.value.runId); await listRuns(); }
+        else if (ownerIsCurrent(owner)) { const readOwner = current.current; await continueBoardReads(() => current.current === readOwner && requests.enabled(), [() => readRun(), () => loadTab(readOwner.tab)]); }
+        else setNotice(tr('savedElsewhere'));
+      } catch (problem) { if (current.current.sessionId === owner.sessionId && requests.enabled()) { if (request.action === 'start' || ownerIsCurrent(owner)) fail(problem); else setNotice(tr('savedElsewhere')); if (problem.message.includes('REVISION_CONFLICT') && ownerIsCurrent(owner)) await readRun(); } }
+      finally { if (current.current.sessionId === owner.sessionId) setBusy(false); }
+    };
+    const retry = (intentScope) => {
+      const payload = requests.pending(intentScope); if (!payload) return;
+      const { operationId, expectedRevision, requestId, ...request } = payload; operate(intentScope, request);
+    };
+    const retryButton = (intentScope) => requests.pending(intentScope) ? button(tr('operationRetry'), () => retry(intentScope), busy) : null;
+    const pagination = (page, fn, textMode = false) => page ? h('div', { className: 'tb-pagination' },
+      page.cursor > 0 ? button(tr('previous'), () => fn(Math.max(0, page.cursor - (textMode ? 16000 : 20)))) : null,
+      Number.isSafeInteger(page.total) ? h('span', null, tr('range', { start: page.total ? (page.cursor ?? 0) + 1 : 0, end: (page.cursor ?? 0) + (page.items?.length ?? page.executions?.length ?? 0), total: page.total })) : page.truncated ? h('span', null, tr('partial')) : null,
+      page.nextCursor !== null && page.nextCursor !== undefined ? button(tr('more'), () => fn(page.nextCursor)) : null) : null;
+    const related = (row, showMissing = false) => row.refs?.length ? h('div', { className: 'tb-related' }, h('span', { className: 'tb-muted' }, tr('related')), row.refs.map((ref) => link(`${tr(ref.section)} · ${ref.id}`, ref, { key: `${ref.section}:${ref.id}` }))) : showMissing ? h('p', { className: 'tb-muted' }, tr('noRelation')) : null;
+    const rowNode = (row) => h('article', { className: 'tb-item', key: row.key },
+      h('div', { className: 'tb-item-head' }, link(row.title, { section: row.section, ...(row.recordId ? { id: row.recordId } : { local: row.raw }) }), status(row.reviewDecision ?? row.status)),
+      row.role || row.applicability === 'stale' ? h('div', { className: 'tb-meta' }, row.role ? h('span', null, row.role) : null, row.applicability === 'stale' ? h('span', null, label('stale')) : null) : null);
+    const sectionRows = (section, filter = null) => {
+      const page = pages[section];
+      if (!page) return h('p', { className: 'tb-muted', role: 'status' }, tr('loading'));
+      if (page.error) return h('div', { className: 'tb-alert', role: 'alert' }, page.error);
+      const model = reviewViewModel(run, section, page); const rows = filter ? model.rows.filter(filter) : model.rows;
+      const active = rows.filter((row) => row.applicability !== 'stale'); const archived = rows.filter((row) => row.applicability === 'stale');
+      return h(React.Fragment, null, active.length ? active.map(rowNode) : h('p', { className: 'tb-muted' }, tr(filter ? 'noVerifier' : 'empty')), archived.length ? h('details', { className: 'tb-section' }, h('summary', null, label('stale')), archived.map(rowNode)) : null, pagination(page, (cursor) => readSection(section, cursor)));
+    };
+    const runOverview = () => {
+      const question = run?.pending?.find((entry) => entry.status === 'open'); const controls = reviewControls(run); const primary = controls.resume ? 'resume' : controls.retry ? 'retry' : controls.pause ? 'pause' : null;
+      return h(React.Fragment, null, question ? h('section', { className: 'tb-focus' }, h('h2', null, question.question), h('div', { className: 'tb-choice' }, question.options.map((option) => button(h(React.Fragment, null, option.label, option.description ? h('small', null, option.description) : null), () => operate(scope, { action: 'decide', runId, questionId: question.id, optionId: option.id }), busy, { key: option.id }))), question.findingIds?.length ? related({ refs: question.findingIds.map((id) => ({ section: 'findings', id })) }) : null) : h('section', { className: 'tb-focus' }, h('h2', null, run?.summary ?? tr('current')), ['paused', 'error'].includes(run?.status) && run?.diagnostic ? h('p', null, run.diagnostic) : null, primary ? h('div', { className: 'tb-actions' }, button(tr(primary), () => operate(scope, { action: primary, runId }), busy, { className: 'tb-primary' })) : null),
+        h('details', null, h('summary', null, tr('controls')), h('div', { className: 'tb-actions' }, Object.keys(controls).map((action) => button(tr(action), () => operate(scope, { action, runId }), busy || !controls[action], { key: action })), button(tr('revise'), (event) => open({ section: 'revise' }, event), busy))),
+        h('section', { className: 'tb-section' }, h('div', { className: 'tb-section-head' }, h('h2', null, tr('tasks')), button(tr('more'), () => setTab('tasks'), false, { className: 'tb-quiet' })), sectionRows('tasks')));
+    };
+    const runDiscussion = () => {
+      const view = discussionView(pages.findings?.items, pages.decisions?.items, pages.tasks?.items);
+      const loaded = pages.findings && pages.decisions;
+      return h(React.Fragment, null, !loaded ? h('p', { role: 'status' }, tr('loading')) : view.issues.length ? view.issues.map(({ finding, decisions }) => h('article', { className: 'tb-item', key: finding.key },
+        h('div', { className: 'tb-item-head' }, link(finding.title, { section: 'findings', id: finding.recordId }), status(finding.status)),
+        finding.raw.sourceExecutionId ? h('div', { className: 'tb-meta' }, link((pages.executions?.items ?? []).find((entry) => entry.executionId === finding.raw.sourceExecutionId)?.role ?? tr('source'), { section: finding.raw.origin === 'machine' ? 'checkResults' : 'executions', id: finding.raw.sourceExecutionId })) : null,
+        decisions.map(({ decision, tasks }) => h('div', { className: 'tb-decision', key: decision.key }, h('strong', null, label(decision.status)), h('p', null, decision.title), link(tr('details'), { section: 'decisions', id: decision.recordId }),
+          h('div', { className: 'tb-related' }, tasks.map((task) => link(task.title, { section: 'tasks', id: task.recordId }, { key: task.key })), decision.refs.filter((ref) => ref.section === 'tasks' && !tasks.some((task) => task.id === ref.id)).map((ref) => link(`${tr('task')} · ${ref.id}`, ref, { key: ref.id }))))),
+        decisions.length ? null : related({ refs: finding.refs.filter((ref) => ref.section !== 'executions') }))) : h('p', { className: 'tb-muted' }, tr('empty')),
+        pagination(pages.findings, (cursor) => readSection('findings', cursor)),
+        view.otherDecisions.length ? h('section', { className: 'tb-section' }, h('div', { className: 'tb-section-head' }, h('h2', null, tr('decisions'))), view.otherDecisions.map(rowNode)) : null,
+        pagination(pages.decisions, (cursor) => readSection('decisions', cursor)),
+        h('details', { className: 'tb-section' }, h('summary', null, tr('executions')), sectionRows('executions')),
+        h('details', { className: 'tb-section' }, h('summary', null, label('stale')), ['findings', 'decisions'].map((section) => h('div', { key: section }, (pages[section]?.items ?? []).filter((entry) => entry.applicability === 'stale').map((entry) => rowNode(reviewRow(entry, section)))))));
+    };
+    const runResults = () => h(React.Fragment, null,
+      h('section', null, h('div', { className: 'tb-section-head' }, h('h2', null, tr('checkResults'))), sectionRows('checkResults')),
+      h('section', { className: 'tb-section' }, h('div', { className: 'tb-section-head' }, h('h2', null, tr('verifier'))), sectionRows('executions', (row) => row.stageId === 'verify')),
+      h('div', { className: 'tb-actions' }, link(tr('report'), { section: 'report' }), link(tr('checkSpecs'), { section: 'checkSpecs' }), link(tr('artifacts'), { section: 'executions' })));
+    const form = (revising = false) => {
+      const value = revising ? revisionDraft : draft; const draftScope = revising ? scope : 'new';
+      return h('div', null, h('label', null, tr('requirement'), h('textarea', { value: revising && !value.requirementEdited ? (run?.requirement ?? '') : value.requirement, onChange: (event) => update(draftScope, { requirement: event.target.value, requirementEdited: true }) })),
+        revising ? h(React.Fragment, null, h('label', null, tr('reason'), h('input', { value: value.reason, onChange: (event) => update(draftScope, { reason: event.target.value }) })), h('label', null, tr('impact'), h('textarea', { value: value.impact, onChange: (event) => update(draftScope, { impact: event.target.value }) }))) : h('div', { className: 'tb-form-row' }, h('label', null, tr('mode'), h('select', { value: value.mode, onChange: (event) => update('new', { mode: event.target.value }) }, ['review', 'develop'].map((key) => h('option', { key, value: key }, tr(key))))), h('label', null, tr('preset'), h('select', { value: value.preset, onChange: (event) => update('new', { preset: event.target.value }) }, ['quick@2', 'standard@2'].map((key) => h('option', { key, value: key }, key))))),
+        h('div', { className: 'tb-actions' }, button(tr(revising ? 'saveRevision' : 'start'), () => { try { operate(revising ? scope : 'new', revising ? { action: 'revise', runId, requirement: value.requirementEdited ? value.requirement : run.requirement, reason: value.reason, ...(value.impact.trim() ? { impact: JSON.parse(value.impact) } : {}) } : { action: 'start', requirement: value.requirement, mode: value.mode, preset: value.preset }); } catch (problem) { fail(problem); } }, busy || (revising ? !value.reason.trim() : !value.requirement.trim()), { className: 'tb-primary' }), retryButton(revising ? scope : 'new')));
+    };
+    const detailRows = () => {
+      if (!detailPage) return h('p', { role: 'status', className: 'tb-muted' }, tr('loading'));
+      if (detailPage.content !== undefined) return h(React.Fragment, null, h('pre', null, detailPage.content), pagination(detailPage, (cursor) => { const next = refs.current.page(cursor); setDetail(next); queryDetail(next); }, true));
+      if (detail.section === 'usage') return h(React.Fragment, null, json(detailPage), pagination(detailPage, (cursor) => { const next = refs.current.page(cursor); setDetail(next); queryDetail(next); }));
+      const model = reviewViewModel(run, detail.section, detailPage);
+      return h(React.Fragment, null, model.rows.length ? model.rows.map((row) => h('article', { className: 'tb-item', key: row.key }, h('h2', null, row.title), h('div', { className: 'tb-meta' }, status(row.status), row.reviewDecision ? status(row.reviewDecision) : null, row.applicability !== 'unknown' ? label(row.applicability) : null), row.basis ? h('p', null, row.basis) : null,
+        h('dl', null, h('dt', null, tr('execution')), h('dd', null, row.raw.executionId ?? row.raw.sourceExecutionId ?? row.recordId), row.requirementRevision !== null ? h(React.Fragment, null, h('dt', null, tr('version')), h('dd', null, row.requirementRevision)) : null, row.role ? h(React.Fragment, null, h('dt', null, tr('owner')), h('dd', null, row.role)) : null),
+        row.acceptance.length ? h('div', null, h('h3', null, tr('acceptance')), h('ul', null, row.acceptance.map((text, index) => h('li', { key: index }, text)))) : null,
+        row.scopes.length ? h('div', null, h('h3', null, tr('scopes')), h('p', null, row.scopes.join(', '))) : null,
+        related(row), h('div', { className: 'tb-actions' }, row.logRef ? link(tr('log'), { section: 'artifact', id: row.logRef }) : null, row.resultRef ? link(tr('result'), { section: 'artifact', id: row.resultRef }) : null), h(RecordDetails, { value: row.raw, t }))) : h('p', { className: 'tb-muted' }, tr('missing')), pagination(detailPage, (cursor) => { const next = refs.current.page(cursor); setDetail(next); queryDetail(next); }));
+    };
+    const records = () => h('div', null,
+      h('div', { className: 'tb-actions' }, ['history', 'questions', 'executions', 'usage'].map((section) => link(tr(section === 'history' ? 'records' : section), { section }, { key: section }))),
+      h(RecordDetails, { value: run, t }));
+    const renderDetail = () => h('section', { className: 'tb-detail', onKeyDown: (event) => { if (event.key === 'Escape') close(); } },
+      h('div', { className: 'tb-detail-bar' }, button(tr('back'), close, false, { className: 'tb-quiet' }), button(tr('close'), clearDetail, false, { className: 'tb-quiet' })),
+      h('h2', { ref: detailHeading, tabIndex: -1 }, tr(detail.section === 'artifact' ? 'result' : detail.section)),
+      detail.section === 'new' ? form() : detail.section === 'revise' ? form(true) : detail.section === 'records' ? records() : detail.local ? h('div', null, rowNode(reviewRow(detail.local, detail.section)), h(RecordDetails, { value: detail.local, t })) : detailRows());
+    const title = runId ? (run?.requirement?.split('\n').find((line) => line.trim())?.slice(0, 160) ?? run?.summary ?? tr('loading')) : tr('title');
+    const enabled = state.value?.enabled === true;
+    return h('div', { className: 'tb-page', 'aria-busy': busy }, h('style', null, boardStyles),
+      h('header', { className: 'tb-toolbar' }, h('select', { value: runId, 'aria-label': tr('context'), disabled: !enabled, onChange: (event) => selectContext(event.target.value) }, h('option', { value: '', disabled: true }, tr('selectRun')), runs.items.map((item) => h('option', { key: item.runId, value: item.runId }, item.summary || item.runId)), runId && !runs.items.some((item) => item.runId === runId) ? h('option', { value: runId }, run?.summary ?? tr('runSource')) : null),
+        h('div', { className: 'tb-toolbar-actions' }, button(tr('new'), (event) => open({ section: 'new' }, event), !enabled, { className: 'tb-quiet' }), button(tr('refresh'), () => refreshState(), state.status === 'loading', { className: 'tb-quiet' }), button(enabled ? tr('enabled') : tr('disabled'), () => refreshState(!enabled), !sessionId || busy, { role: 'switch', 'aria-label': tr('enabled'), 'aria-checked': enabled, className: 'tb-quiet' }))),
+      h('main', { className: 'tb-main' },
+        error ? h('div', { className: 'tb-alert', role: 'alert' }, `${tr('error')}: ${error}`, retryButton(scope)) : null, notice ? h('p', { role: 'status', className: 'tb-notice' }, notice) : null,
+        !sessionId ? h('p', null, tr('noSession')) : state.status === 'loading' ? h('p', { role: 'status' }, tr('loading')) : state.status === 'failed' ? button(tr('retry'), () => refreshState()) : !enabled ? h('div', { className: 'tb-off' }, h('h1', null, tr('disabled')), button(tr('enable'), () => refreshState(true), busy)) : h(React.Fragment, null,
+          h('header', null, h('h1', null, title), runId ? h('div', { className: 'tb-meta' }, status(run?.status), run?.phase ? h('span', null, run.phase) : null, button(tr('records'), (event) => open({ section: 'records' }, event), false, { className: 'tb-quiet' })) : null),
+          runId ? h('nav', { className: 'tb-tabs', role: 'tablist', 'aria-label': tr('context') }, boardTabs.map((key) => button(tr(key), () => { setTab(key); clearDetail(); }, false, { key, id: `tb-tab-${key}`, role: 'tab', 'aria-selected': tab === key, 'aria-controls': 'tb-panel', tabIndex: tab === key ? 0 : -1, onKeyDown: (event) => { const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0; if (delta) { event.preventDefault(); const next = boardTabs[(boardTabs.indexOf(tab) + delta + 4) % 4]; setTab(next); event.currentTarget.parentElement?.querySelector(`#tb-tab-${next}`)?.focus(); } } }))) : null,
+          detail ? renderDetail() : runId ? h('section', { role: 'tabpanel', id: 'tb-panel', 'aria-labelledby': `tb-tab-${tab}` }, !run ? h('p', { role: 'status' }, tr('loading')) : tab === 'overview' ? runOverview() : tab === 'discussion' ? runDiscussion() : tab === 'tasks' ? sectionRows('tasks') : runResults()) : h('section', { className: 'tb-focus' }, h('p', { className: 'tb-muted' }, runs.items.length ? tr('selectRun') : tr('noRuns')), h('div', { className: 'tb-actions' }, button(tr('new'), (event) => open({ section: 'new' }, event), false, { className: 'tb-primary' }))),
+          runs.cursor > 0 || runs.nextCursor !== null ? pagination(runs, listRuns) : null, (runs.errors ?? []).map((entry, index) => h('p', { role: 'alert', className: 'tb-alert', key: index }, `${entry.projectRoot}: ${entry.message}`)))));
+  }
+  return UnifiedBoard;
+}
+
+return { reviewMessages, createReviewPanel, reviewViewModel, reviewRow, reviewControls, discussionView, roleLedgerMessageKey, boardTabs, createReviewRequestGate, decodeReviewResponse, createBoardRequestState, createReferenceStack, continueBoardReads };
 })();
-    const ReviewClientPanel = reviewClient.createReviewPanel(React, h);
     /* REVIEW_CLIENT_END */
 
     /** Client locale 命名空间（与 locale/*.json、meta 字段同一套 key）。 */
@@ -1941,695 +2176,7 @@ return { reviewMessages, createReviewPanel, reviewViewModel, createReviewRequest
       return out.length === 0 ? null : out;
     }
 
-    const pure = {
-      sanitizeLabel,
-      sourceTitle,
-      sourceDetail,
-      rosterLine,
-      ledgerLine,
-      ledgerStats,
-      count,
-      codeKey,
-      gateRowText,
-      gateGroups,
-      aggregateIssues,
-      verdictOf,
-      kindBadge,
-      statusBadge,
-      boardRows,
-      graphLayout,
-      taskSubjects,
-      wrapLabel,
-      breakPoint,
-      charUnits,
-      textUnits,
-      GRAPH,
-      TONE_META,
-      toneMeta,
-      orderIssues,
-      partitionIssues,
-      switchGeometry,
-      focusSet,
-      /* D2/D3/D4/D5：待拍板条目的全部判定（组件零判定）。 */
-      selectDecisions,
-      orderDecisions,
-      decisionSlot,
-      decisionRowOf,
-      decisionDay,
-      admitDecision,
-      auditDecisionSlots,
-      DECISION_CAPACITY,
-      DECISION_SLOTS,
-      DECISION_TITLE_MAX,
-      DECISION_OPTIONS_MAX,
-      VERDICTS,
-      SWITCH,
-      SWITCH_TOKENS,
-      K,
-      /* 本轮新增的三块：会议账本四态 / 门禁覆盖三分母 / 声明警告。 */
-      MEETING_STATES,
-      MEETING_HEADLINE,
-      meetingStageRows,
-      meetingView,
-      meetingCardLines,
-      CARD_LINE_CLASS,
-      meetingCardText,
-      shadowView,
-      declarationWarningsOf,
-    };
-
-    /* ═══════════════════════════════════════════════════════════════════════
-     * 二、页面
-     * ═══════════════════════════════════════════════════════════════════════ */
-
-    /**
-     * 组件内样式：**只引用宿主主题 token**（`--dsw-alias-*`），一个色值都不写死。
-     *
-     * 为什么这条不能松：用户当前是深色主题，但随时可能切浅色。写死 `#e5484d` 在浅色下
-     * 就是一行糊在米白底上的粉字；写死 `#1a1a1a` 在深色下直接不可见。所以：
-     *   - 中性层级 → `label-primary / -secondary / -tertiary`（随主题自动反转）
-     *   - 语义色   → `state-error / -warn / -business / -success-primary`
-     *   - 背景层级 → `bg-layer-1`（卡片）/ `bg-layer-2`（卡内嵌块）
-     *   - 分隔线   → `border-l2`（卡片轮廓）/ `border-l3`（卡内分隔）
-     *   - 等宽     → 只给数字、门禁码、任务 id。**正文一律不用等宽**：
-     *                等宽等于向读者宣布"这是一坨数据"，那正是上一版 `<pre>` 的病根。
-     *
-     * 语义色用 CSS 变量 `--tb-tone` 逐块注入，形状与颜色因此解耦：
-     * 一个 `.tb-bar` 既能是危险色条也能是警告色条，不必写两套规则、也不会漂移。
-     */
-    const STYLES = `
-.tb-root { padding: 16px 18px 28px; box-sizing: border-box; height: 100%; overflow-y: auto;
-  color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 1.55;
-  display: flex; flex-direction: column; gap: 12px; }
-
-/* 卡片：统一间距与圆角，与宿主其它页面同口径（靠 token，不靠记忆里的像素值）。 */
-.tb-card { background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px; padding: 14px 16px; min-width: 0; }
-.tb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-/* 标题 + 副标题两行成块；右侧操作区独立一列、垂直居中。
- * 拆成三个盒子是为了：标题再长也挤不走操作区，副标题也不会和按钮争基线。 */
-.tb-card-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.tb-card-head-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
-.tb-card-sub { font-size: 11px; line-height: 1.45; color: var(--dsw-alias-label-secondary); }
-.tb-card-head-top { align-items: center; }
-.tb-card-title { font-weight: 600; font-size: 13px; }
-.tb-card-title-sm { font-weight: 600; font-size: 12px; color: var(--dsw-alias-label-secondary); }
-.tb-dim { color: var(--dsw-alias-label-secondary); }
-.tb-mute { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
-
-/* ── 顶栏：标题 + 数据源徽章 + 开关，同一行 ─────────────────────────────
- * 开关原来飘在一大片空白中间（单独占一行、左右什么都没有）。
- * 现在它和标题同一行、右对齐 —— 一个"页级开关"本来就该待在页级标题旁边。
- *
- * 第 14 轮补：**把这一行的高度钉死**（min-height: 24px + align-items:center）。
- * 原来标题 15px/650 与开关 11.5px 的行高不同，'align-items:center' 只能对齐"盒"，
- * 而两边的行盒高度不一样 → 开关看起来"掉下去半格"。定高之后没有任何一方能撑歪它。 */
-.tb-top-left { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 24px; }
-.tb-top-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 24px; }
-.tb-page-title { font-weight: 650; font-size: 15px; line-height: 24px; }
-
-/* ── 徽章：一格小药丸 ───────────────────────────────────────────────────
- *
- * 第 15 轮修两个真 bug（都是"看起来对、其实没生效"）：
- *
- * ① **statusBadge 返回的 tone 一个都没渲染出来。** 它返回
- *    plain / active / success / danger / mute，而这里只定义了 primary / warn / muted
- *    —— 四个状态色从来没有任何 CSS 命中过。现在五档全部补齐。
- * ② **类型徽章被邻座盖掉最后一个字形。** 下面加了 min-width:0 + overflow:hidden +
- *    text-overflow:ellipsis。原来只有 white-space:nowrap，在 74px 固定格里
- *    'implementation' 溢出后会被右侧徽章的背景盖住末尾（title 里反而是完整的，
- *    所以肉眼以为是 JS 截断 —— 不是）。 */
-.tb-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px;
-  font-size: 11px; line-height: 1.7; white-space: nowrap;
-  min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
-  border: 1px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-secondary); }
-/* 数据源徽章三档 + 任务状态四档。
- *
- * 第 17 轮改法：**文字一律中性，语义走 1px 边框**。
- * 原因是实测出来的：琥珀色 state-warn-primary 在浅色主题（白底）下对比度只有 2.15:1，
- * 连大字门槛 3:1 都不到；而徽章是 11px 小字，门槛是 4.5:1 —— 相差一倍。
- * 边框不适用文字对比度要求，所以语义搬到这里，字仍然读得清。 */
-.tb-badge[data-tone="primary"] { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-primary); }
-.tb-badge[data-tone="warn"] { border-color: var(--dsw-alias-state-warn-primary); color: var(--dsw-alias-label-primary); }
-.tb-badge[data-tone="muted"] { border-color: var(--dsw-alias-border-l3); color: var(--dsw-alias-label-tertiary); }
-.tb-badge[data-tone="success"] { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-label-primary); }
-.tb-badge[data-tone="danger"] { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-label-primary); }
-.tb-badge[data-tone="active"] { border-color: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-primary); }
-.tb-badge[data-tone="mute"] { border-color: var(--dsw-alias-border-l3); color: var(--dsw-alias-label-tertiary); }
-/* plain 是"无状态"，刻意保持中性、不给颜色 —— 它不是第五种语义，只是"没有语义"。 */
-.tb-badge[data-tone="plain"] { color: var(--dsw-alias-label-secondary); }
-.tb-badge-n { font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-variant-numeric: tabular-nums; }
-
-/* ── 总判 banner：整页最重的一块，占满宽度、置顶 ───────────────────────── */
-.tb-verdict { position: relative; border-radius: 12px; overflow: hidden;
-  background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2);
-  padding: 16px 18px 16px 22px; }
-/* 左侧色条 —— 判决的颜色只需要一条，不需要把整块刷亮。 */
-.tb-verdict::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--tb-tone, var(--dsw-alias-label-tertiary)); }
-.tb-verdict[data-tone="danger"] { --tb-tone: var(--dsw-alias-state-error-primary); }
-.tb-verdict[data-tone="ok"] { --tb-tone: var(--dsw-alias-state-success-primary); }
-.tb-verdict[data-tone="unknown"] { --tb-tone: var(--dsw-alias-label-tertiary); }
-.tb-verdict-word { font-size: 20px; font-weight: 650; line-height: 1.25; letter-spacing: .01em;
-  color: var(--dsw-alias-label-primary); }
-/* 判决词本身不上色：同一位置"不能交付"是红（白底 4.5:1 勉强）、"可以交付"是绿
- * （白底 2.28:1，读不清）。同一个元素两种状态一好一坏，就不该按状态上色。
- * 语义交给左侧 4px 色条 + 下面三个统计块的色块。 */
-.tb-verdict-sub { margin-top: 5px; max-width: 62ch; }
-.tb-verdict-why { margin: 8px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12.5px; max-width: 62ch; }
-
-/* 数字行：先给总量再给明细。数字大号 + 等宽（能纵向对齐），标签小字灰。 */
-.tb-stats { display: flex; gap: 28px; flex-wrap: wrap; margin-top: 14px; }
-.tb-stat { min-width: 0; }
-.tb-stat-v { font-size: 24px; font-weight: 600; line-height: 1.1; letter-spacing: -.01em;
-  font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-primary); }
-/* 数字本身不上色（理由同上：琥珀在白底 2.15:1），语义改成小色块挂在数字左边。
- * 色块是形状，不受文字对比度约束。 */
-.tb-stat { position: relative; padding-left: 9px; }
-.tb-stat::before { content: ''; position: absolute; left: 0; top: 3px; bottom: 3px; width: 3px;
-  border-radius: 2px; background: var(--tb-tone, transparent); }
-.tb-stat[data-tone="danger"] { --tb-tone: var(--dsw-alias-state-error-primary); }
-.tb-stat[data-tone="warn"] { --tb-tone: var(--dsw-alias-state-warn-primary); }
-.tb-stat-l { font-size: 11px; color: var(--dsw-alias-label-tertiary); margin-top: 3px; }
-
-/* ── 网格：左主视图（门禁）2fr + 右明细栏（台账）1fr ─────────────────────
- *
- * 第 15 轮修"右列大片空白"：原来 'align-items:start' 让台账卡只有约 120px 高，
- * 下面约 460px 是纯空白（卡:空白 ≈ 1:3.9）—— 那块空白读起来像"页面没加载完"。
- *
- * 处理成两件事：
- *   ① 网格改成 'align-items:stretch'，右栏变成一个可撑满的 flex 列；
- *   ② 台账卡在**确实有角色可列**时 'flex:1' 撑满右栏 —— 空白于是落在卡片**内部**，
- *      读起来是"这张卡有留白"，而不是"两张卡之间破了个洞"。
- *
- * 为什么没把任务板搬进右栏（lead 给过这个选项）：任务板是 5 列表格，
- * 放进约 1/3 宽会立刻退回窄布局，反而更难读；它的窄布局要等容器查询那一批。
- *
- * 诚实的残留：台账为「不可用 / 无历史」时右栏仍会有空白 —— 那一栏真的没有更多
- * 内容可放。要彻底填满需要新数据源，不是排版能解决的。 */
-.tb-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; align-items: stretch; }
-.tb-rail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.tb-rail > .tb-card[data-fill="true"] { flex: 1 1 auto; display: flex; flex-direction: column; }
-.tb-rail > .tb-card[data-fill="true"] .tb-role-list { flex: 1 1 auto; }
-/* 窄窗口退化成一列：不是"勉强挤"，是明确的单列阅读顺序（判决 → 门禁 → 台账 → 任务板）。 */
-@media (max-width: 780px) { .tb-grid { grid-template-columns: minmax(0, 1fr); } }
-
-/* ── 根因组：一根因一块，色条 + 形状 双通道区分三档语义 ─────────────────
- * 色条**宽度**由 --tb-bar 驱动（4/3/2px），形状用 ●◆○。
- * 加宽度这条通道的直接原因：深色主题下 hard(#f25a5a) 与 precondition(#f59e0b)
- * 的 ΔE 只有 57 且都是暖色，3px 细条在缩放截图里会糊成同一个红。 */
-.tb-group { position: relative; padding: 9px 12px 10px 14px; border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2); margin-top: 8px; }
-.tb-group::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 7px;
-  width: var(--tb-bar, 3px); border-radius: 2px; background: var(--tb-tone, var(--dsw-alias-border-l3)); }
-.tb-group[data-tone="hard"] { --tb-tone: var(--dsw-alias-state-error-primary); }
-.tb-group[data-tone="precondition"] { --tb-tone: var(--dsw-alias-state-warn-primary); }
-.tb-group[data-tone="warning"] { --tb-tone: var(--dsw-alias-state-business-primary); }
-.tb-group[data-tone="hard"] { --tb-bar: 4px; }
-.tb-group[data-tone="precondition"] { --tb-bar: 3px; }
-.tb-group[data-tone="warning"] { --tb-bar: 2px; }
-
-/* 轻重三档：牵连多条的那件事必须比只牵连一条的重。
- * 这一档**只调灰度与字号，不动色相** —— 颜色的含义仍然是严重度，不能拿去表示数量。 */
-.tb-group[data-weight="heavy"] { background: var(--dsw-alias-bg-layer-3); }
-.tb-group[data-weight="heavy"] .tb-group-label { font-size: 13.5px; font-weight: 650; }
-.tb-group[data-weight="light"] { background: transparent;
-  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l3); }
-.tb-group[data-weight="light"] .tb-group-label { font-size: 12.5px; font-weight: 500; }
-.tb-group[data-weight="light"] .tb-code { opacity: .85; }
-
-.tb-group-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-/* 形状通道：● ◆ ○ —— 形状与填充都不同，色弱/灰度/缩放截图下仍可分辨。 */
-/* 形状通道：● ◆ ○ —— 靠**字符形状**区分，不靠颜色。
- * 颜色留空给 label-secondary，因为 10px 小字用语义色在浅色下读不清（见徽章那段）。 */
-.tb-glyph { font-size: 10px; line-height: 1; color: var(--dsw-alias-label-secondary); }
-.tb-code { font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px; color: var(--dsw-alias-label-tertiary); letter-spacing: -.01em; }
-.tb-group-label { font-size: 13px; font-weight: 550; }
-/* ×N 是这一块最重要的那个符号：它把"十条阻断"和"两个根因"同时说清。 */
-.tb-count { margin-left: auto; font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
-.tb-group[data-weight="heavy"] .tb-count { font-size: 13px; }
-.tb-more { margin-top: 10px; display: inline-flex; }
-.tb-more[data-hidden-blockers="true"] { color: var(--dsw-alias-label-primary); font-weight: 600; }
-.tb-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-/* 申报改动 chip：与写域 chip 同形，但左边缘加一道虚线区分"这是申报不是事实"。 */
-.tb-tflags-declared { align-items: center; }
-.tb-declared-caption { font-size: 10.5px; color: var(--dsw-alias-label-tertiary); }
-.tb-chip-declared { border-style: dashed; }
-.tb-chip { font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px; padding: 1px 6px; border-radius: 5px; color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-layer-3); border: 1px solid var(--dsw-alias-border-l3); }
-.tb-msg { margin: 7px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.tb-msg + .tb-msg { margin-top: 4px; }
-
-/* ── 展开/收起：纯文字按钮，不带边框（不要再往页面里加盒子） ─────────────── */
-.tb-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 7px; padding: 0;
-  background: none; border: 0; cursor: pointer; font: inherit; font-size: 11.5px;
-  color: var(--dsw-alias-link); }
-.tb-toggle:hover { text-decoration: underline; }
-
-/* ── 任务板：结构化行，一条一行；长板自己在框里滚，不撑长整页 ────────────── */
-.tb-scroll { max-height: 320px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
-.tb-thead, .tb-trow { display: grid; grid-template-columns: 76px 74px 88px minmax(0, 1fr) 124px;
-  gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; }
-.tb-thead { font-size: 10.5px; color: var(--dsw-alias-label-tertiary); text-transform: uppercase;
-  letter-spacing: .04em; border-bottom: 1px solid var(--dsw-alias-border-l3); border-radius: 0; }
-.tb-trow:nth-child(even) { background: var(--dsw-alias-bg-layer-2); }
-.tb-tid { font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11.5px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; }
-.tb-tsubject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tb-town { font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11.5px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; }
-/* 不是自己的任务灰一档：一眼看出"哪些是我的"而不必逐个读名字。 */
-.tb-town[data-mine="false"] { color: var(--dsw-alias-label-tertiary); }
-.tb-tscopes { display: flex; gap: 4px; overflow: hidden; }
-.tb-tsubject-wrap { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.tb-tflags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
-@media (max-width: 780px) {
-  /* 窄窗口：表格退化成两行式（第一行 id + 徽章，第二行标题 + 归属），不横向滚动。 */
-  .tb-thead { display: none; }
-  .tb-trow { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-}
-
-/* 手感上的两个选择：
- * ① 线用半透明：线多的时候交叠会自然变深，能看出"这一束很密"而不会糊成实墙；
- * ② **不画两端的接头小圆点**。原计划学 dsh-context 在出发端 r=2 / 到达端 r=3 各点一个
- *    圆点表示方向，但在我们这个尺寸下（线宽 1.5px、走廊 88px）2px 和 3px 根本分不出，
- *    它只是让人以为节点上有脏点。方向已经由"左出右入"的几何说清了，不需要再点一次。 */
-.tb-graph { margin-top: 12px; overflow-x: auto; }
-.tb-graph svg { display: block; }
-/* 根因节点是真按钮（用户原话「不可以点击」）。SVG 里 <g> 默认不可聚焦、没有指针，
- * 这里显式给出来：指针、键盘焦点环、按下反馈。 */
-.tb-node-hit { cursor: pointer; }
-.tb-node-hit:focus { outline: none; }
-.tb-node-hit:focus-visible .tb-node { stroke: var(--dsw-alias-state-business-primary); stroke-width: 2; }
-.tb-node-hit:hover .tb-node { fill: var(--dsw-alias-bg-layer-3); }
-.tb-node-hit[aria-pressed="true"] .tb-node { stroke-width: 2; stroke: var(--dsw-alias-label-primary); }
-/* 选中一个根因后，没被牵连的线与节点压暗 —— 注意力按**关系**收窄，不按分类。
- * 用属性而不是内联 opacity：这样"压暗"本身也能被断言到。 */
-.tb-graph [data-dim="true"] { opacity: .25; }
-.tb-graph [data-dim="true"]:hover { opacity: .45; }
-.tb-edge { transition: opacity 120ms ease; }
-.tb-node-hit { transition: opacity 120ms ease; }
-.tb-edge { fill: none; stroke-width: 1.5; stroke-opacity: .55; }
-.tb-edge[data-tone="hard"] { stroke: var(--dsw-alias-state-error-primary); }
-.tb-edge[data-tone="precondition"] { stroke: var(--dsw-alias-state-warn-primary); }
-.tb-edge[data-tone="warning"] { stroke: var(--dsw-alias-state-business-primary); }
-.tb-node { fill: var(--dsw-alias-bg-layer-2); stroke: var(--dsw-alias-border-l3); stroke-width: 1; }
-/* 被 2 个以上根因打中的任务：描边换成错误色，一眼看出"这条是重灾区"。 */
-.tb-node[data-tone="hard"] { stroke: var(--dsw-alias-state-error-primary); }
-.tb-node-bar[data-tone="hard"] { fill: var(--dsw-alias-state-error-primary); }
-.tb-node-bar[data-tone="precondition"] { fill: var(--dsw-alias-state-warn-primary); }
-.tb-node-bar[data-tone="warning"] { fill: var(--dsw-alias-state-business-primary); }
-.tb-node-text { fill: var(--dsw-alias-label-primary); font-size: 11.5px; }
-/* 节点第二行：任务标题 / 门禁码。正文字号、次要色 —— 主次分明才读得出"这是什么"。 */
-.tb-node-sub { fill: var(--dsw-alias-label-secondary); font-size: 10px; }
-.tb-node-code { font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 9.5px; fill: var(--dsw-alias-label-tertiary); letter-spacing: -.01em; }
-.tb-node-text[data-tone="hard"] { fill: var(--dsw-alias-state-error-primary); font-weight: 600; }
-.tb-node-badge { fill: var(--dsw-alias-label-tertiary); font-size: 10.5px;
-  font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-variant-numeric: tabular-nums; }
-.tb-node-badge[data-tone="hard"] { fill: var(--dsw-alias-state-error-primary); }
-.tb-node-badge[data-tone="precondition"] { fill: var(--dsw-alias-state-warn-primary); }
-.tb-node-badge[data-tone="warning"] { fill: var(--dsw-alias-state-business-primary); }
-.tb-graph-note { margin: 7px 0 0; }
-.tb-issue-list { margin-top: 14px; }
-.tb-issue-list::before { content: ''; display: block; border-top: 1px solid var(--dsw-alias-border-l3); margin-bottom: 10px; }
-
-/* ── 角色台账：实体排名，五格数字纵向可对齐 ───────────────────────────── */
-.tb-role { padding: 10px 0; border-top: 1px solid var(--dsw-alias-border-l3); }
-.tb-role:first-child { border-top: 0; padding-top: 0; }
-.tb-role-id { font-weight: 600; font-size: 12.5px;
-  font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace); }
-.tb-role-nums { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-top: 7px; }
-.tb-cell-v { font-size: 14px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums;
-  font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace); }
-/* 台账数字也不上色：出过事的那一格用**底部小色条**标记，字仍是主色。 */
-.tb-cell { position: relative; padding-bottom: 3px; }
-.tb-cell[data-tone="danger"] { --tb-tone: var(--dsw-alias-state-error-primary); }
-.tb-cell[data-tone="warn"] { --tb-tone: var(--dsw-alias-state-warn-primary); }
-.tb-cell[data-tone="danger"]::after, .tb-cell[data-tone="warn"]::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
-  border-radius: 1px; background: var(--tb-tone); }
-.tb-cell-l { font-size: 10px; color: var(--dsw-alias-label-tertiary); margin-top: 2px; line-height: 1.3; }
-.tb-role-pit { margin-top: 7px; font-size: 11.5px; color: var(--dsw-alias-label-tertiary); }
-
-/* ── 说明块：不可用态的解释文字。要有边界，不能是一行字浮在空白里 ────────── */
-.tb-note { margin: 8px 0 0; padding: 9px 11px; border-radius: 8px; font-size: 12px;
-  color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2);
-  border-left: 2px solid var(--dsw-alias-border-l3); max-width: 68ch; }
-.tb-note[data-tone="warn"] { border-left-color: var(--dsw-alias-state-warn-primary); }
-.tb-note[data-tone="danger"] { border-left-color: var(--dsw-alias-state-error-primary); }
-
-/* 降级原文：明确标注这是**给模型的文本**，不是页面主视图。 */
-.tb-raw { margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; overflow-x: auto;
-  background: var(--dsw-alias-bg-layer-2); border: 1px dashed var(--dsw-alias-border-l3);
-  color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 1.5; white-space: pre;
-  font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace); }
-
-/* ── 开关（第 14 轮重做：用户说「关闭和开始那个按钮巨丑，还是歪的」）───────
- *
- * 这一版**不是自己想的数值**，是照宿主自己的开关口径抄的
- * （'@deepseek-ai/dsh-client-ui-*' 产物里的 '._switch_1ik0f_5{…}'）：
- *   box-sizing:border-box; width:36px; height:20px; padding:2px; border:0;
- *   border-radius:999px; 关态 background:var(--dsw-alias-border-l3);
- *   开态 background:var(--dsw-alias-brand-primary);        ← 宿主的"开"是品牌色，不是绿
- *   thumb 16×16; 开态 transform:translate(16px)            ← 36 − 2·2 − 16 = 16
- *
- * 原来"歪"的**算术原因**（三处，可复算）：
- *   ① 没写 box-sizing → 'width:34px' 在 content-box 下加 1px 边框实为 36px 宽、21px 高，
- *      于是竖直居中该用 (19−13)/2 = 3px，却写了 top:2px → 偏上 1px；
- *   ② 水平：关态 left 2、右留 34−(2+13)=19；开态 left 2+15=17、右留 34−(17+13)=4
- *      → 左 2 / 右 4 不对称，一开就偏左 2px；
- *   ③ 开态 'border-color:transparent' 但边框仍在（宽度不变）——若改成 border:none
- *      则盒模型从 21px 变 19px，切换瞬间整个控件跳一下。
- * 现在：border:0 + border-box + padding 2px，几何全部由 'switchGeometry()' 算出来，
- * 不再有第二个地方手写偏移量。
- */
-.tb-switch { display: inline-flex; align-items: center; gap: 7px; background: none; border: 0;
-  padding: 0; margin: 0; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11.5px;
-  line-height: 20px; cursor: pointer; }
-.tb-switch:disabled { opacity: .55; cursor: default; }
-.tb-switch:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
-/* 轨道：border:0 + border-box + padding:2px —— 内宽 = 36 − 2·2 = 32，圆点 16，
- * 所以开态位移 = 32 − 16 = 16px。关态底用 border-l3（与卡片底不同，**闭着也看得见**），
- * 开态底用品牌色（宿主口径；不用亮绿实心，那个和整页灰阶不搭）。 */
-.tb-track { box-sizing: border-box; position: relative; flex: 0 0 auto;
-  width: 36px; height: 20px; padding: 2px; border: 0; border-radius: 999px;
-  background: var(--dsw-alias-border-l3); transition: background 120ms; }
-.tb-track[data-on="true"] { background: var(--dsw-alias-brand-primary); }
-/* 圆点：16×16，绝对定位贴在 padding 内沿；位移由 'switchGeometry' 算出的 calc 给出。
- * 加 1px 描边 + 细阴影是为了让它在轨道上有层次（原来是一片纯色像贴纸）。 */
-.tb-knob { display: block; position: absolute; top: 2px; left: 2px;
-  width: 16px; height: 16px; border-radius: 50%;
-  background: var(--dsw-alias-switch-thumb, var(--dsw-alias-bg-layer-1));
-  box-shadow: 0 0 0 1px var(--dsw-alias-border-l4), 0 1px 2px rgba(0, 0, 0, .28);
-  transition: transform 120ms ease, background 120ms ease; }
-.tb-track[data-on="true"] .tb-knob { background: var(--dsw-alias-label-primary-foreground);
-  /* 位移**只**来自 'switchGeometry().travel'（组件把结果塞进 --tb-travel）。
-   * 兜底值写成 calc(100%) 而不是裸 16px：万一变量没送到，圆点仍贴着内区右沿的
-   * 相对量级也不会离谱。 */
-  transform: translateX(var(--tb-travel, calc(100% - 0px))); }
-/* 开关与文字同一条基线：把这一行的高度定死，避免"掉下去半格"。 */
-.tb-switch-label { line-height: 20px; }
-
-.tb-foot { color: var(--dsw-alias-label-tertiary); font-size: 11.5px; padding: 2px 2px 6px; }
-
-/* ── ③ 待拍板（通栏）───────────────────────────────────────────────────────
- * **定高 92px**（K4 的处置）。
- *
- * 上一版写的是 "min-height: 92px"，那不是定高：30 字标题 + 3 个选项 + 一句影响
- * 在 92px 里必然换行，于是"高度"这件事根本写不出断言，行与行也不再齐。
- * 现在改成 "height: 92px" + "box-sizing: border-box"，并且把三段的算术钉死：
- *
- *     92 = 7 + 7（上下内边距）
- *        + 34（标题，两行 × 17px）
- *        + 16（槽位行，一行）
- *        + 24（影响行，一行）
- *        + 2 × 2（两条行距）
- *
- * 三段全部 "overflow: hidden" + 省略号，**任何内容都撑不高一行**。
- * 这是"定高"与"内容可能很长"这对矛盾的唯一实解：高度不让位，文字让位。
- *
- * 区块自身**不设 max-height / overflow-y**（D1 硬约束）：7 条以内不出现滚动条
- * 不靠"没有滚动容器"来保证，而是靠上面这条算术 —— 7 × (92 + 行距/内边距) 是算得出来的。
- */
-.tb-decide { max-height: none; overflow: visible; display: flex; flex-direction: column; gap: 8px; }
-
-/* 两列三段：左列三段（标题 / 槽位 / 影响），右列两段（状态槽 / 控件）。
- * 两列而不是三列：状态与控件必须**同一列起始**，否则每行的按钮会左右错位，
- * 读起来像每行属于不同的东西。 */
-.tb-drow { display: grid; grid-template-columns: minmax(0, 1fr) 168px;
-  grid-template-rows: 34px 16px 24px; row-gap: 2px; column-gap: 10px;
-  height: 92px; box-sizing: border-box; overflow: hidden; align-content: start;
-  padding: 7px 8px; border-radius: 6px; }
-.tb-drow:nth-child(even) { background: var(--dsw-alias-bg-layer-2); }
-.tb-drow[data-decided="true"] { background: var(--dsw-alias-bg-layer-2); }
-
-/* ① 标题：两行封顶。"-webkit-line-clamp" 在定高格里配合 "overflow:hidden" 稳定生效。 */
-.tb-dtitle { grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden;
-  font-size: 12.5px; line-height: 17px; color: var(--dsw-alias-label-primary);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-
-/* ② 槽位行：一行装下"截止 / 影响 / 来源"，放不下就省略，绝不换行。 */
-.tb-dslots { grid-column: 1; grid-row: 2; min-width: 0; overflow: hidden;
-  display: flex; flex-wrap: nowrap; align-items: center; gap: 8px;
-  font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary);
-  white-space: nowrap; }
-.tb-dslots > * { flex: 0 0 auto; }
-.tb-dslots > .tb-dgrow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tb-down { font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px; color: var(--dsw-alias-label-secondary); }
-/* 来源链接：**可点**是 Req2 的一项，不是装饰 —— 所以它必须是真 <a href>，
- * 下划线常驻（不靠 hover 才现身：触屏上没有 hover）。 */
-/* 链接的字用中性色、语义走**下边框**：32a 那条硬约束是"语义色不许画在字形上"
- * （浅色主题下琥珀/蓝对白底够不着 4.5:1），所以可点性由下划线表达、属于哪类来源
- * 由边框色表达。两条通道分开，谁都不靠对方。 */
-.tb-dref { color: var(--dsw-alias-label-primary); text-decoration: underline;
-  text-underline-offset: 2px; padding-bottom: 1px;
-  border-bottom: 1px solid var(--dsw-alias-state-business-primary);
-  overflow: hidden; text-overflow: ellipsis; }
-.tb-dref:hover { text-decoration-thickness: 2px; }
-/* 占位文案（无截止日 / 无默认值）：虚线底划，明确说"这里本来就没有"，不是漏渲染。 */
-.tb-dph { color: var(--dsw-alias-label-tertiary); border-bottom: 1px dashed var(--dsw-alias-border-l3); }
-
-/* ③ 影响行：一句话，必须含金额或截止日（判定在 "decisionImpactSlot"）。 */
-.tb-dimpact { grid-column: 1; grid-row: 3; min-width: 0; overflow: hidden;
-  font-size: 11.5px; line-height: 24px; color: var(--dsw-alias-label-secondary);
-  white-space: nowrap; text-overflow: ellipsis; }
-.tb-dimpact[data-source="amount"], .tb-dimpact[data-source="due"] { color: var(--dsw-alias-label-primary); }
-
-/* 右列上段：状态槽（待拍板 / 已拍板 / 无归属）。跨 row 1–2，垂直居中。 */
-.tb-dslot { grid-column: 2; grid-row: 1 / span 2; justify-self: end; align-self: center;
-  text-align: right; font-size: 11.5px; line-height: 16px; color: var(--dsw-alias-label-secondary); }
-/* 空归属：虚线底划 + 更浅的字 —— 它是一件"确实没人认领"的事，不是一条普通待办。 */
-.tb-dslot[data-kind="noOwner"] { color: var(--dsw-alias-label-tertiary);
-  border-bottom: 1px dashed var(--dsw-alias-border-l3); }
-/* 已拍：用语义色边框而不是整行变色 —— 整行变色会让"已拍"看起来像"已完成/已删除"。 */
-.tb-dslot[data-kind="approve"], .tb-dslot[data-kind="reject"], .tb-dslot[data-kind="hold"] {
-  color: var(--dsw-alias-label-primary); border-bottom: 1px solid var(--dsw-alias-border-l3); }
-
-/* 右列下段：控件。三颗按钮固定同列起始。 */
-.tb-dbtns { grid-column: 2; grid-row: 3; justify-self: end; align-self: center;
-  display: flex; gap: 6px; justify-content: flex-end;
-  flex-wrap: nowrap; overflow: hidden; }
-.tb-dbtn { font: inherit; font-size: 11.5px; line-height: 18px; padding: 1px 8px; border-radius: 6px;
-  cursor: pointer; white-space: nowrap;
-  border: 1px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-secondary); }
-.tb-dbtn:hover:not(:disabled) { border-color: var(--dsw-alias-border-l4); }
-/* 已拍的那一颗用"描边加深 + 下划线"区分，不只靠字重：灰度截图下也分得开。 */
-.tb-dbtn[data-on="true"] { border-color: var(--dsw-alias-label-secondary);
-  color: var(--dsw-alias-label-primary); font-weight: 600; text-decoration: underline; }
-.tb-dbtn:disabled { cursor: not-allowed; opacity: .45; }
-/* 回写失败：红色描边 + 重试按钮（K2/Req6：条目**不回退不消失**，只是多一颗按钮）。 */
-.tb-dbtn[data-action="retry"] { border-color: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-label-primary); }
-/* 回写失败：11px 是"小字"，所以**字色只能中性**（32d），失败这件事由红色下边框表达
- * —— 与 32a 同一条纪律：语义只上形状，不上字形。 */
-.tb-dwbfail { color: var(--dsw-alias-label-primary); font-size: 11px;
-  border-bottom: 1px solid var(--dsw-alias-state-error-primary); }
-
-/* 建议输入：**在 row 3 里就地替换影响行**，行高不变（定高是硬约束，不许被输入框撑开）。 */
-.tb-dsuggest { grid-column: 1; grid-row: 3; display: flex; align-items: center; min-width: 0;
-  height: 24px; }
-.tb-dinput { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 12px; height: 22px;
-  padding: 0 7px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l3);
-  background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }
-/* 别人提过的建议：挤进槽位行，一行省略（完整内容在 title 里）。 */
-.tb-dsaid { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  max-width: 100%; color: var(--dsw-alias-label-secondary); }
-
-/* 折叠行：8–20 条显示「还有 N 条」；grouped 时每组各一条（N 是该组被收起的条数）。 */
-.tb-dmore { display: inline-flex; margin: 4px 0 0; padding-left: 8px;
-  font-size: 11px; color: var(--dsw-alias-label-tertiary); }
-
-/* 分组（>20 条）：组头是 "source_system"，不是日期 —— 分组回答"这批事属于哪个系统"。 */
-.tb-dgroup { margin-top: 12px; }
-.tb-dgroup:first-child { margin-top: 0; }
-.tb-dgroup-head { display: flex; align-items: baseline; gap: 8px; padding: 0 2px 5px;
-  border-bottom: 1px solid var(--dsw-alias-border-l3);
-  font-family: var(--dsh-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px; color: var(--dsw-alias-label-tertiary); }
-
-/* 窄窗口：右列收窄，但**仍是两列、仍是 92px**（改成三行就会把定高破掉）。 */
-@media (max-width: 780px) {
-  .tb-drow { grid-template-columns: minmax(0, 1fr) 132px; column-gap: 8px; }
-  .tb-dbtn { padding: 1px 5px; }
-}
-
-/* ── 会议账本 / 门禁覆盖（本轮新增）──────────────────────────────────────
- * **这里的类名必须与 CARD_LINE_CLASS 一一对应**：卡片正文只有一种来源
- * （meetingCardLines），所以每一段只有 class 可挑，没有第二种排版可挑。
- *
- * 为什么行是**单行文本**而不是四列 grid：卡片要"投影 ≠ 组件在构造上不可能"，
- * 组件就只能把 line.text 原样铺出来 —— 一旦拆成四个格子，组件就得自己把
- * text 再切开，那正是漂移的入口。上一版按 grid 四列排，状态是独立徽章，
- * 于是组件必须自己从 row.status 再算一次译文；投影与卡片因此能悄悄分叉。
- * 代价明说：阶段行不再有独立的等宽列对齐，换来的是"两边不可能不一致"。
- *
- * 注意：这段注释本身在模板字符串里，**一个反引号都不许出现**（含引用的标识符），
- * 上一版把标识符包在反引号里，直接把模板字符串提前闭合、整份文件语法错误。 */
-.tb-mnote { display: block; margin-top: 6px; font-size: 12px; overflow-wrap: anywhere;
-  color: var(--dsw-alias-label-secondary); }
-.tb-mline { padding: 5px 0; font-size: 12px;
-  border-bottom: 1px solid var(--dsw-alias-border-l3); overflow-wrap: anywhere; }
-.tb-mline:last-child { border-bottom: none; }
-.tb-mline-head { color: var(--dsw-alias-label-tertiary); font-size: 11px;
-  border-bottom: 1px solid var(--dsw-alias-border-l3); }
-.tb-shadow-hint { font-size: 11px; color: var(--dsw-alias-label-tertiary); margin-top: 2px; max-width: 190px; }
-
-/* ── 动效降级（硬约束：这座页面只要有任何 animation / transition，就必须有这一条）──
- * 前庭功能敏感、晕动症、以及远程桌面/低配机器上的用户会主动打开系统级
- * "减少动态效果"。这条必须**无条件**存在，不依赖本轮是否真的加了动画 ——
- * 等到加动画那批再补，就已经有人先被那 35ms stagger 晃到了。 */
-@media (prefers-reduced-motion: reduce) {
-  .tb-root *, .tb-root *::before, .tb-root *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
-  }
-}
-`;
-
-    function SwitchRow({ enabled, busy, onToggle, t }) {
-      /* 位移由纯函数算出来（见 `switchGeometry`），CSS 里不再手写像素。
-       * 变量挂在按钮上、圆点继承 —— 轨道宽/内边距/圆点大小任一项改了，位移自动跟着变，
-       * 不可能再出现"一开就偏左 2px"这种漂移。 */
-      const geo = switchGeometry();
-      return h(
-        'button',
-        {
-          type: 'button',
-          className: 'tb-switch',
-          role: 'switch',
-          'aria-checked': enabled === true,
-          title: t('switch.hint'),
-          disabled: busy === true,
-          style: { '--tb-travel': `${geo.travel}px` },
-          onClick: () => onToggle(enabled !== true),
-        },
-        h('span', { className: 'tb-track', 'data-on': enabled === true ? 'true' : 'false' }, h('span', { className: 'tb-knob' })),
-        h('span', { className: 'tb-switch-label' }, t(enabled === true ? 'switch.on' : 'switch.off')),
-      );
-    }
-
-    /**
-     * 数据源徽章：三态三色。
-     *
-     * 为什么用颜色而不是文字区分：这一枚徽章要在一眼之内回答"我看到的数是从哪来的"，
-     * 而三种来源的可信度本来就不同 ——
-     *   `agentTeams` 有任务板（主来源）→ business 蓝，唯一的"实心"来源
-     *   `roster`     退到花名册（有数，但没有任务粒度）→ 中性灰，明显次一档
-     *   `unavailable` 拿不到 → warn 琥珀，**且下面必须跟一句解释**
-     * 灰色在这里是有含义的"次一档"，不是没上色。
-     */
-    function SourceBadge({ source, t }) {
-      const tone = source.kind === 'agentTeams' ? 'primary' : source.kind === 'roster' ? 'muted' : 'warn';
-      return h('span', { className: 'tb-badge', 'data-tone': tone }, t('source.label'), ' · ', sourceTitle(source.kind, t));
-    }
-
-    /**
-     * 总判 banner —— 整页第一眼看到的东西。
-     *
-     * 结构上刻意分三种：能交付 / 不能交付时**有数字行**，判不了时**没有**。
-     * 这就是"空态与不可用态必须长得不一样"落在布局上，而不是落在文案上。
-     */
-    /**
-     * 卡片标题栏：标题 + 副标题（+ 右侧操作区）。
-     *
-     * 用户原话：「人家基本上都有解释啊之类的，摘要啊之类的」。
-     * 上一版每张卡只有四个字的标题，读者不知道这块在回答什么、数字该往哪儿看。
-     * 副标题是一句 11px 的说明，讲清"这一块回答哪个问题"，而不是复述标题。
-     *
-     * 结构固定成两行：标题一行、副标题一行（都是块级），右侧操作区垂直居中 ——
-     * 这样标题多长都不会把操作区挤走，也不会让副标题和按钮争同一条基线。
-     */
-    function CardHead({ title, sub, right, className }) {
-      const base = typeof className === 'string' && className !== '' ? className : 'tb-card-head';
-      return h('div', { className: base },
-        h('div', { className: 'tb-card-head-text' },
-          h('span', { className: 'tb-card-title' }, title),
-          typeof sub === 'string' && sub !== '' ? h('div', { className: 'tb-card-sub' }, sub) : null),
-        right === undefined || right === null ? null : h('div', { className: 'tb-card-head-right' }, right));
-    }
-
-    function VerdictBanner({ gates, t }) {
-      const view = verdictOf(gates, t);
-      return h(
-        'section',
-        { className: 'tb-verdict', 'data-tone': view.tone, 'aria-live': 'polite' },
-        h('div', { className: 'tb-verdict-word' }, view.headline),
-        /* 判决 banner 的"摘要"就是它自己那一行大字，但读者仍需知道这行是什么意思。
-         * 放在大字下面一行小字，弱于判决、强于正文。 */
-        h('div', { className: 'tb-card-sub tb-verdict-sub' }, t(K.subVerdict)),
-        view.reason === null ? null : h('p', { className: 'tb-verdict-why' }, view.reason),
-        view.stats.length === 0
-          ? null
-          : h('div', { className: 'tb-stats' },
-            view.stats.map((stat) => h('div', { className: 'tb-stat', 'data-tone': stat.tone, key: stat.key },
-              h('div', { className: 'tb-stat-v' }, stat.value),
-              h('div', { className: 'tb-stat-l' }, stat.label)))),
-        view.note === null ? null : h('p', { className: 'tb-note', 'data-tone': 'warn' }, view.note),
-      );
-    }
-
-    /**
-     * 一根因一组。默认收起时的三行就是"读者要的全部"：
-     *   ① 人话名 + 门禁码   ② ×N（几条连带）   ③ 受影响的任务 id
-     * 展开才看每条的原始 message —— 因为它们大多是同一句话换了任务名。
-     */
-    function IssueGroup({ group, t }) {
-      const [open, setOpen] = React.useState(false);
-      const single = group.count <= 1;
-      const messages = group.messages.length === 0 ? [] : group.messages;
-      const meta = toneMeta(group.tone);
-      /* `data-weight` 让 CSS 能按"轻重"分档上样式：牵连 9 条的那件事必须比牵连 1 条的重。
-       * 它是**第三条通道**（前两条：色条宽度、形状字形），三条都不依赖颜色亮度。 */
-      const weight = single ? 'light' : group.count >= 3 ? 'heavy' : 'normal';
-      return h('div', {
-        className: 'tb-group',
-        'data-tone': group.tone,
-        'data-weight': weight,
-      },
-        h('div', { className: 'tb-group-head' },
-          /* 形状通道：● 实心圆 / ◆ 实心菱形 / ○ 空心圆。
-           * 形状 + 填充都不同，所以色弱、深色主题、灰度截图下仍然分得开。 */
-          h('span', { className: 'tb-glyph', 'aria-hidden': 'true' }, meta.glyph),
-          /* label 为 null 表示"这个码还没有人话译文"（见 codeKey 的注释）：
-           * 那时只显示码本身，绝不显示两遍码 —— 也就没有"这两个是不同的东西"的错觉。 */
-          group.label === null ? null : h('span', { className: 'tb-group-label' }, group.label),
-          h('span', { className: 'tb-code' }, group.code),
-          single ? null : h('span', { className: 'tb-count' }, `×${group.count}`)),
-        group.taskIds.length === 0
-          ? null
-          : h('div', { className: 'tb-chips' },
-            group.taskIds.map((taskId) => h('span', { className: 'tb-chip', key: taskId }, taskId))),
-        messages.length === 0
-          ? null
-          : single
-            ? h('p', { className: 'tb-msg' }, messages[0])
-            : h('div', null,
-              open ? messages.map((message, index) => h('p', { className: 'tb-msg', key: String(index) }, message)) : null,
-              h('button', { type: 'button', className: 'tb-toggle', onClick: () => setOpen(!open) },
-                open ? `▾ ${t(K.collapse)}` : `▸ ${t(K.expand)} ${group.count}`)),
-      );
-    }
-
-﻿﻿    /* ASCII 词字符：字母 / 数字 / 下划线 / 连字符。切点两侧都是它，就说明要劈开一个英文词。 */
     const ASCII_WORD_CHAR = /[A-Za-z0-9_-]/;
-
-    /**
-     * 一个字符占几个"半角单位"。汉字/全角按 2 算，其余按 1。
-     *
-     * 为什么不能数"字符个数"：`team_deliver` 是 12 个字符，但在 10px 下只有约 6.6 个汉字宽。
-     * 按字符数算会把它当成 12 个汉字宽，于是它被顶到第二行、还从中间被劈开 ——
-     * 这就是用户看到的 `team_del` / `er`。按显示宽度算才是排版该做的事。
-     */
     function charUnits(ch) {
       const code = typeof ch === 'string' ? ch.codePointAt(0) : undefined;
       if (code === undefined) return 1;
@@ -2766,831 +2313,66 @@ return { reviewMessages, createReviewPanel, reviewViewModel, createReviewRequest
      * 没有可画的线（所有根因都是"全局"的）就整块不出现 ——
      * 一张没有任何连线的"关系图"只会让读者去找根本不存在的线。
      */
-    function CauseGraph({ issues, subjects, t }) {
-      const G = GRAPH;
-      const layout = graphLayout(issues, undefined, subjects);
-      if (!layout.hasGeometry) return null;
-      /* 选中态：点一个根因 → 只亮它牵连的线与任务，其余压暗；再点同一个取消。
-       * 用户原话是「不可以点击」，所以节点必须是**真的按钮**（role/tabIndex/键盘可达），
-       * 不是"长得像按钮的图元"。 */
-      const [selected, setSelected] = React.useState(null);
-      const focus = focusSet(layout, selected);
-      const dim = (lit) => (focus.active === false ? undefined : lit === false ? 'true' : undefined);
-      const toggle = (key) => setSelected((current) => (current === key ? null : key));
-      const onKey = (event, key) => {
-        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
-          event.preventDefault();
-          toggle(key);
-        }
-      };
-      /* 未选中时不压暗任何东西（`data-dim` 不出现）；选中时未被点亮的才带 data-dim。
-       * 用属性而不是内联样式：这样"压暗"这件事也能被 CSS 断言到。 */
-      return h('div', { className: 'tb-graph' },
-        h('svg', {
-          width: layout.width,
-          height: layout.height,
-          viewBox: `0 0 ${layout.width} ${layout.height}`,
-          /* 不再声明 role='img'：图里现在有可聚焦的按钮，整张图不是一张图片。 */
-          'aria-label': t(K.graphNote),
-        },
-        layout.links.map((link) => h('path', {
-          key: link.key,
-          className: 'tb-edge',
-          'data-tone': link.tone,
-          'data-dim': dim(focus.active === true && focus.links.has(link.key) === false ? false : undefined),
-          d: link.path,
-        })),
-        layout.tasks.map((task) => h('g', {
-          key: task.key,
-          'data-dim': dim(focus.active === true && focus.tasks.has(task.key) === false ? false : undefined),
-        },
-        /* 完整标题放 title 元素（SVG 里 title 属性不产生悬停提示，必须用子元素）。 */
-        h('title', null, task.subject === '' ? task.id : `${task.id} — ${task.subject}`),
-        h('rect', {
-          className: 'tb-node',
-          'data-tone': task.hits >= 2 ? 'hard' : 'plain',
-          x: task.x, y: task.y, width: task.w, height: task.h, rx: 7,
-        }),
-        /* 两行：第一行 id（等宽弱色），第二行标题（正文字号）。
-         * 用户原话「task一，我知道那是个啥吗？」—— 只有 id 的节点不算解释。 */
-        h('text', {
-          className: 'tb-node-text',
-          'data-tone': task.hits >= 2 ? 'hard' : 'plain',
-          x: task.x + 11, y: task.y + G.lineMain,
-        }, clampText(task.id, 22)),
-        /* 说明折成最多两行：每行一个 text，y 用 GRAPH 里的常量。
-         * SVG 不认自动换行，方框里放三行是**算**出来的，不是让浏览器排的。 */
-        wrapLabel(task.subject, G.subMaxUnits).map((line, lineIndex) => h('text', {
-          className: 'tb-node-sub',
-          key: String(lineIndex),
-          x: task.x + 11,
-          y: task.y + (lineIndex === 0 ? G.lineSub1 : G.lineSub2),
-        }, line)),
-        task.hits >= 2
-          ? h('text', {
-            className: 'tb-node-badge',
-            'data-tone': 'hard',
-            x: task.x + task.w - 11,
-            y: task.y + G.lineMain,
-            textAnchor: 'end',
-          }, `×${task.hits}`)
-          : null)),
-        layout.causes.map((cause) => {
-          const isSelected = focus.active === true && focus.key === cause.key;
-          return h('g', {
-            key: cause.key,
-            className: 'tb-node-hit',
-            role: 'button',
-            tabIndex: 0,
-            'aria-pressed': isSelected,
-            'aria-label': cause.label === null ? cause.code : cause.label,
-            'data-dim': dim(focus.active === true && isSelected === false ? false : undefined),
-            onClick: () => toggle(cause.key),
-            onKeyDown: (event) => onKey(event, cause.key),
-          },
-          h('title', null, cause.label === null ? cause.code : `${cause.label}（${cause.code}）`),
-          h('rect', {
-            className: 'tb-node',
-            'data-selected': isSelected ? 'true' : 'false',
-            x: cause.x, y: cause.y, width: cause.w, height: cause.h, rx: 7,
-          }),
-          /* 左侧色条 = 这个根因自己的严重度。线也是同一个颜色，
-           * 于是一束线是什么颜色，就能反向认出它从哪个根因出来。 */
-          h('rect', {
-            className: 'tb-node-bar',
-            'data-tone': cause.tone,
-            x: cause.x, y: cause.y + 5, width: 3, height: cause.h - 10, rx: 2,
-          }),
-          /* 主行 = 中文名（做完 ① 之后每个码都有译文了）；没有译文时才退回码。
-           * 次行 = 完整门禁码，小字等宽 —— **不做截断**：E_TASK_INCOMPLETE 这类
-           * 18 字符的码在 9.5px 等宽下约 103px，208px 的节点放得下。
-           * 上一版把主行截到 15 字，于是页面上出现 'E_TASK_INCOMPL…' 这种残码。 */
-          h('text', {
-            className: 'tb-node-text',
-            x: cause.x + 13, y: cause.y + G.lineCause1,
-          }, clampText(cause.label === null ? cause.code : cause.label, 11)),
-          cause.label === null
-            ? null
-            : h('text', {
-              className: 'tb-node-sub tb-node-code',
-              x: cause.x + 13, y: cause.y + G.lineCause2,
-            }, cause.code),
-          h('text', {
-            className: 'tb-node-badge',
-            'data-tone': cause.tone,
-            x: cause.x + cause.w - 11,
-            y: cause.y + cause.h / 2 + 4,
-            textAnchor: 'end',
-          }, cause.global ? t(K.globalCause) : `×${cause.count}`));
-        })),
-        h('p', { className: 'tb-mute tb-graph-note' }, t(K.graphNote)),
-        layout.hiddenTasks === 0 ? null : h('p', { className: 'tb-mute' }, `…还有 ${layout.hiddenTasks} 条`));
-    }
 
-    /**
-     * 门禁结论卡（左主视图）。
-     *
-     * 判不了的时候：只给一句"为什么判不了"的说明块，**一整块数字都不铺**。
-     * 空的时候：明确写「无阻断」+ 两组的 `· 0`，让"读到了，就是零"是可见的。
-     */
-    function GateCard({ gates, t }) {
-      const view = verdictOf(gates, t);
-      if (view.tone === 'unknown') {
-        return h('section', { className: 'tb-card' },
-          h(CardHead, { title: t('gates.title'), sub: t(K.subGates) }),
-          h('div', { className: 'tb-note', 'data-tone': 'warn' }, view.reason));
-      }
-      const nothing = view.issues.length === 0;
-      return h('section', { className: 'tb-card' },
-        /* 卡头只留标题 + 一句副标题。原来这里还有「阻断 n · 警告 n」，与上面 banner
-         * 的三个大数字是同一组数说两遍 —— 相距 40px 的重复，只会让读者怀疑两处口径不同
-         * （一处按行数、一处按去重根因数）。数字留在 banner，这里不再复述。 */
-        h(CardHead, { title: t('gates.title'), sub: t(K.subGates) }),
-        /* ① 关系图（一眼看结构） —— ② 明细列表（逐条读、可展开）。
-         * 两件不同的事，所以不是重复：图回答"这是几件事、哪条任务最惨"，
-         * 列表回答"具体每一句是什么"。 */
-        h(CauseGraph, { issues: view.issues, subjects: taskSubjects(gates.tasks), t }),
-        nothing
-          ? h('div', { className: 'tb-note' }, t('gates.none'))
-          : h(IssueList, { issues: view.issues, t }));
-    }
+    const pure = {
+      ...reviewClient,
+      sanitizeLabel,
+      sourceTitle,
+      sourceDetail,
+      rosterLine,
+      ledgerLine,
+      ledgerStats,
+      count,
+      codeKey,
+      gateRowText,
+      gateGroups,
+      aggregateIssues,
+      verdictOf,
+      kindBadge,
+      statusBadge,
+      boardRows,
+      graphLayout,
+      taskSubjects,
+      wrapLabel,
+      breakPoint,
+      charUnits,
+      textUnits,
+      GRAPH,
+      TONE_META,
+      toneMeta,
+      orderIssues,
+      partitionIssues,
+      switchGeometry,
+      focusSet,
+      /* D2/D3/D4/D5：待拍板条目的全部判定（组件零判定）。 */
+      selectDecisions,
+      orderDecisions,
+      decisionSlot,
+      decisionRowOf,
+      decisionDay,
+      admitDecision,
+      auditDecisionSlots,
+      DECISION_CAPACITY,
+      DECISION_SLOTS,
+      DECISION_TITLE_MAX,
+      DECISION_OPTIONS_MAX,
+      VERDICTS,
+      SWITCH,
+      SWITCH_TOKENS,
+      K,
+      /* 本轮新增的三块：会议账本四态 / 门禁覆盖三分母 / 声明警告。 */
+      MEETING_STATES,
+      MEETING_HEADLINE,
+      meetingStageRows,
+      meetingView,
+      meetingCardLines,
+      CARD_LINE_CLASS,
+      meetingCardText,
+      shadowView,
+      declarationWarningsOf,
+    };
 
-    /**
-     * 根因明细列表 —— **排序 + 折叠**都在这里落地。
-     *
-     * 第 14 轮之前：13 条阻断一份权重堆着，读到第五块眼睛已经不区分了，全红 = 没有红。
-     * 现在：
-     *   ① `partitionIssues` 先按 tone 分区、区内按 count 降序，默认只展开 top 3；
-     *   ② 其余收进一行「…还有 N 个根因（其中 M 条是阻断）」，点开全展开；
-     *   ③ 每条自己再按 `data-weight` 分三档轻重（heavy / normal / light）。
-     *
-     * 折叠可以，**隐藏不行**：汇总行必须同时给出"还有几个"和"其中几个是阻断"。
-     * 只写「还有 10 个」而不说里面还有阻断，等于用折叠把严重性藏起来。
-     */
-    function IssueList({ issues, t, limit }) {
-      const [showAll, setShowAll] = React.useState(false);
-      const parts = partitionIssues(issues, limit);
-      const visible = showAll ? parts.ordered : parts.shown;
-      return h('div', { className: 'tb-issue-list' },
-        visible.map((group) => h(IssueGroup, { group, t, key: `${group.tone}:${group.code}` })),
-        parts.collapsed === false || showAll === true
-          ? null
-          : h('button', {
-            type: 'button',
-            className: 'tb-toggle tb-more',
-            'data-hidden-blockers': parts.hiddenBlockers > 0 ? 'true' : 'false',
-            onClick: () => setShowAll(true),
-          }, `▸ …还有 ${parts.hiddenCount} 个根因${parts.hiddenBlockers > 0 ? `（其中 ${parts.hiddenBlockers} 个是阻断）` : ''}`));
-    }
-
-    /**
-     * 角色台账（右明细栏）：实体的成绩排名。
-     *
-     * 上一版是五张通栏卡片里的一行长字符串，读者没法比较角色。这里一角色一块，
-     * 五个数字各自成格、等宽、纵向对齐 —— 于是"谁的空转最多"是看出来的，不是算出来的。
-     * 后两格（失败 / 空手失败）出过事才上色：它们直接决定"下次还要不要派给他"。
-     */
-    /**
-     * 会议账本 —— 「这场会跑到哪了」。
-     *
-     * 上面几块回答"这批活能不能收"，这一块回答**进度**：会开到第几阶段、每阶段交了哪些产物。
-     * 四态在结构上不同（见 `meetingView`）：`none` 与 `unreadable` 都不是"有数字"的样子，
-     * 而两者也不会长得像 —— 这条红线的执行版本是 `unreadable` 多一行**成因**。
-     */
-    function MeetingCard({ ledger, t }) {
-      const view = meetingView(ledger, t);
-      /* 正文**只能**来自 `meetingCardLines`。这个函数体内不许出现成因标签、列头、
-       * 产物占位这三处正文 key 的任何 `t(...)` 调用，也不许调用状态徽章函数 ——
-       * 一旦出现，「投影 ≠ 卡片」就又变成可能，而那种漂移**没有任何测试抓得住**
-       * （卡片在本测试里取不到：`createElement` 返回 null）。
-       * `37d` 用源码扫描钉住这一条；注意本注释**刻意不写出那几个字面量**，
-       * 否则扫描会把自己的注释当成犯规。
-       *
-       * 卡头的 title/sub 除外：它们是**卡头**而不是正文，投影不负责。 */
-      const lines = meetingCardLines(view, t);
-      return h('section', { className: 'tb-card', 'data-meeting': view.state },
-        h(CardHead, { title: t('meeting.title'), sub: t('meeting.sub') }),
-        lines.map((line) => {
-          const extra = line.tone === null ? {} : { 'data-tone': line.tone };
-          return h('div', { className: CARD_LINE_CLASS[line.kind], key: line.key, ...extra }, line.text);
-        }));
-    }
-
-    /**
-     * 门禁覆盖（shadow）—— **三个分母并排**，外加声明块警告。
-     *
-     * 两个分母合成一个，就把"判了 3 条"里"其实一条都没核"盖掉 —— 那正是 P0 抓到的假绿。
-     * `blind`（任务列表都拿不到）时一个数字都不出现；`no-tasks` / `no-judged` 是测量结果，照给。
-     *
-     * 声明警告一条都没有时**整块不渲染**（不许出现"0 条警告"的空壳）。
-     */
-    function ShadowCard({ shadow, tasks, t }) {
-      const view = shadowView(shadow, t);
-      const warnings = declarationWarningsOf(tasks);
-      if (view === null && warnings === null) return null;
-
-      return h('section', { className: 'tb-card' },
-        h(CardHead, { title: t('shadow.title'), sub: t('shadow.sub') }),
-        view === null
-          ? null
-          : (view.blind
-            ? h('div', { className: 'tb-note', 'data-tone': 'warn' }, view.reason === null ? t('shadow.reason.tasks') : view.reason)
-            : h('div', null,
-              h('div', { className: 'tb-stats' }, view.stats.map((stat) => h('div', { className: 'tb-stat', key: stat.key },
-                h('div', { className: 'tb-stat-v' }, stat.value),
-                h('div', { className: 'tb-stat-l' }, stat.label),
-                h('div', { className: 'tb-shadow-hint' }, stat.hint)))),
-              /* `no-judged` / `no-tasks` 的成因照给数字，但必须有一句说明
-               * "这些 0 是测量结果，不是没读"。 */
-              view.reason === null ? null : h('div', { className: 'tb-note' }, view.reason))),
-        warnings === null
-          ? null
-          : h('div', { className: 'tb-group' },
-            h('div', { className: 'tb-group-head' },
-              h('span', { className: 'tb-group-label' }, t('declaration.title')),
-              h('span', { className: 'tb-count' }, count(warnings.length))),
-            warnings.map((item, index) => h('div', { className: 'tb-mnote', key: `${item.taskId}:${item.code}:${index}` },
-              item.taskId === '' ? null : h('code', { className: 'tb-code' }, item.taskId),
-              item.code === '' ? null : h('code', { className: 'tb-code' }, item.code),
-              h('span', { className: 'tb-msg' }, item.message)))));
-    }
-
-    function LedgerCard({ ledger, t }) {
-      const value = ledger !== null && typeof ledger === 'object' ? ledger : { status: 'unavailable', roles: [] };
-      const statusText =
-        value.status === 'ok' ? t('ledger.status.ok')
-          : value.status === 'empty' ? t('ledger.status.empty')
-            : t('ledger.status.unavailable');
-
-      let body;
-      if (value.status === 'unavailable') {
-        /* 这句解释已经被用户确认为"写对了"，保留原样：
-         * "存储读不出来，所以这一块给不出任何结论（不是「没有历史」）"。
-         * 它放在有边界的说明块里，不再是一行字浮在一整片空白中间。 */
-        body = h('div', { className: 'tb-note', 'data-tone': 'warn' }, t('ledger.unavailable'));
-      } else if (value.status !== 'ok' || !Array.isArray(value.roles) || value.roles.length === 0) {
-        body = h('div', { className: 'tb-note' }, t('ledger.empty'));
-      } else {
-        const list = value.roles.map((role) => {
-          const row = ledgerStats(role, t);
-          return h('div', { className: 'tb-role', key: row.id },
-            h('div', { className: 'tb-role-id' }, row.id),
-            h('div', { className: 'tb-role-nums' },
-              row.cells.map((cell) => h('div', { className: 'tb-cell', 'data-tone': cell.tone, key: cell.key },
-                h('div', { className: 'tb-cell-v' }, cell.value),
-                h('div', { className: 'tb-cell-l' }, cell.label)))),
-            /* 没有记录过坑就**不画这一行** —— 不印一堆「—」占版面。 */
-            row.hasPitfall ? h('div', { className: 'tb-role-pit' }, row.pitfalls) : null);
-        });
-        body = h('div', { className: 'tb-role-list' }, list);
-      }
-
-      const hasRoles = value.status === 'ok' && Array.isArray(value.roles) && value.roles.length > 0;
-      return h('section', { className: 'tb-card', 'data-fill': hasRoles ? 'true' : 'false' },
-        h(CardHead, {
-          title: t('ledger.title'),
-          sub: t(K.subLedger),
-          right: h('span', { className: 'tb-mute' }, statusText),
-        }),
-        body);
-    }
-
-﻿    /**
-     * 「申报改动」chip：成员**自己申报**改了哪些文件。
-     *
-     * 这里有一条红线：**自我申报不得被读成已核实**。
-     * 文案必须是「申报」而不是「改了」——"改了这些文件"是在陈述事实，
-     * 而我们手上只有成员的一句话；事实要靠 diff 对账（那是判定层的活）。
-     * 本项目栽过的那几笔，多半就是"某人这么说"被当成了"事情是这样"。
-     *
-     * 三条渲染纪律：
-     *   ① 前缀标记 ✎ 表明"这是申报"；
-     *   ② `declaredChanges` 不存在 / 非数组 / 空数组 → **什么都不画**
-     *      （画一个「无」会和"申报了零个"混起来，那又是空态与不可用的老问题）；
-     *   ③ 每条 chip 的 title 也写「申报」，悬停时同样不会被读成事实。
-     */
-    function DeclaredChanges({ paths, t }) {
-      const list = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && p.trim() !== '') : [];
-      if (list.length === 0) return null;
-      return h('span', { className: 'tb-tflags tb-tflags-declared' },
-        h('span', { className: 'tb-declared-caption' }, `✎ ${t(K.declaredCaption)}`),
-        list.map((path) => h('span', {
-          className: 'tb-chip tb-chip-declared',
-          key: `d:${path}`,
-          title: `${t(K.declaredCaption)}：${path}`,
-        }, sanitizeLabel(path.trim()))));
-    }
-
-    /** 一条结构化任务行：ID ｜ 类型徽章 ｜ 状态徽章 ｜ 标题（+警告）｜ 归属。 */
-    function TaskRow({ row, t }) {
-      const kind = kindBadge(row.kind, t);
-      const status = statusBadge(row.status, t);
-      return h('div', { className: 'tb-trow' },
-        h('span', { className: 'tb-tid', title: row.id }, row.id),
-        /* kind 徽章：显示短标签，完整名字放 title（悬停可看）。
-         * 以前这里是完整 kind，'implementation' 在 74px 格里溢出、末字被右侧徽章盖掉。 */
-        h('span', { className: 'tb-badge', 'data-tone': kind.declared ? 'muted' : 'warn', title: kind.full === '' ? kind.text : kind.full }, kind.text),
-        /* 状态徽章：danger / success / active / plain / mute —— 这四档 CSS 以前**整段缺失**。 */
-        h('span', { className: 'tb-badge', 'data-tone': status.tone === 'plain' ? 'plain' : status.tone, title: status.text }, status.text),
-        h('span', { className: 'tb-tsubject-wrap' },
-          h('span', { className: 'tb-tsubject', title: row.subject }, row.subject),
-          /* 依赖 / 警告 / 写域挤在标题下面一行，而不是各占一列。
-           * 理由：它们的**出现频率极不均匀** —— 大多数任务三项全空。各占一列会让
-           * 90% 的行飘着三片空白；挤成标记列，则"有标记的行"本身就跳出来了。 */
-          h('span', { className: 'tb-tflags' },
-            row.blockedBy.map((id) => h('span', { className: 'tb-chip', key: `b:${id}` }, `⛓ ${id}`)),
-            row.warnings.map((warning) => h('span', { className: 'tb-chip', key: `w:${warning}` }, `⚠ ${warning}`)),
-            row.scopes.map((scope) => h('span', { className: 'tb-chip', key: `s:${scope}` }, scope)),
-            h(DeclaredChanges, { paths: row.declaredChanges, t }))),
-        h('span', { className: 'tb-town', 'data-mine': row.mine ? 'true' : 'false', title: row.owner },
-          row.owner === '' ? '' : `@${row.owner}`));
-    }
-
-    /**
-     * 任务板（整幅，可滚）。
-     *
-     * 两条路径，都必须是**诚实**的：
-     *   ① 宿主给了结构化 `tasks` → 一条一行，可扫、可折叠、长板自己滚。
-     *   ② 宿主没给 → 明说"宿主没有提供结构化任务"，把给模型的原文折叠起来放后面。
-     *
-     * 为什么②不做成"尽力解析原文"：见 `boardRows` 上面那段 —— 解析等于重新打开
-     * `board.mjs` 特意堵上的注入洞。宁可选"这版还不够好"并如实说出来。
-     *
-     * 空态与不可用态在这里同样分家：`tasks: []` → 「板上没有任务」（读到了，就是零）；
-     * `tasks` 不是数组 → 「没有结构化数据」（拿不到，不给任何结论）。
-     */
-    function BoardCard({ tasks, raw, t }) {
-      const rows = boardRows(tasks);
-      const [openRaw, setOpenRaw] = React.useState(false);
-      const hasRaw = typeof raw === 'string' && raw.trim() !== '';
-
-      if (rows === null) {
-        if (!hasRaw) return null; // 连原文都没有 —— 这一块整个不出现，不占用页面
-        return h('section', { className: 'tb-card' },
-          /* 卡头**不写「不可用」**：顶栏那枚徽章说的是"数据源 = Agent Teams 任务板"，
-           * 同一屏幕两种说法会当场打架。这里只陈述本卡自己的事实：
-           * 宿主没有给结构化任务，所以这里只有给模型的原文。 */
-          h(CardHead, { title: t('board.title'), sub: t(K.subBoard) }),
-          h('div', { className: 'tb-note', 'data-tone': 'warn' }, t(K.rawNote)),
-          h('button', { type: 'button', className: 'tb-toggle', onClick: () => setOpenRaw(!openRaw) },
-            openRaw ? `▾ ${t(K.collapse)}` : `▸ ${t(K.expand)}`),
-          openRaw ? h('pre', { className: 'tb-raw' }, raw) : null);
-      }
-
-      return h('section', { className: 'tb-card' },
-        h(CardHead, {
-          title: t('board.title'),
-          sub: t(K.subBoard),
-          right: h('span', { className: 'tb-mute' }, `${rows.length}`),
-        }),
-        rows.length === 0
-          ? h('div', { className: 'tb-note' }, t(K.empty))
-          : h('div', null,
-            h('div', { className: 'tb-thead' },
-              h('span', null, t(K.colId)),
-              h('span', null, t(K.colKind)),
-              h('span', null, t(K.colStatus)),
-              h('span', null, t(K.colSubject)),
-              h('span', null, t(K.colOwner))),
-            h('div', { className: 'tb-scroll' }, rows.map((row) => h(TaskRow, { row, t, key: row.id })))));
-    }
-
-    /**
-     * ③ 待拍板（**通栏**，D1：插在总判 banner 与 `.tb-grid` 之间，不进右栏 rail）。
-     *
-     * 为什么必须通栏而不是塞进右栏：rail 里那一列的语义是「明细 / 补充」（角色台账），
-     * 而这一块是「还要做的事」。两栏并排、宽度一样，读者就会把待办读成明细 ——
-     * 而"还有 3 件事没人拍板"和"某个角色上次踩过什么坑"根本不是同一个重量级。
-     *
-     * 组件里**零判定**：显示几条、怎么排、能不能拍板、待办还有几个，全部来自
-     * `selectDecisions` / `decisionSlot`。组件只保留三类**交互**状态：
-     * 失败提示、建议草稿、以及"本地已写成功但还没重拉快照"的覆盖值。
-     *
-     * 为什么本地只打补丁、不重拉快照（K2 的处置）：
-     *   重拉会返回一个新数组 → `baseRows` 重算 → 顺序重排，于是"点了准，那一行
-     *   往下跳了两格"。D3 要的是"算一次并冻结"，所以写成功之后**只覆盖这一行**，
-     *   行的身份（id）与位次（seq）都不动；已拍板的行、回写失败的行**一律留在原位**，
-     *   不删除、不隐藏、不改序 —— 判定函数本来就不按 status 过滤（见 `selectDecisions`）。
-     */
-    function DecideCard({ decisions, t, sessionId }) {
-      const source = decisions !== null && typeof decisions === 'object' ? decisions : { status: 'unavailable', reason: 'missing' };
-      const rawRows = Array.isArray(source.rows) ? source.rows : [];
-
-      /* D3 的**冻结点**就在这一行：快照到达时排一次序并盖上 `seq`。
-       * 之后拍板 / 提建议 / 失败重试只改行内容（`override`），`baseRows` 的引用不变，
-       * `orderDecisions` 走"带 seq 就还原"的分支 —— 列表不会因为一次回写跳一下。 */
-      const baseRows = React.useMemo(() => orderDecisions(rawRows), [rawRows]);
-
-      const [override, setOverride] = React.useState({});
-      const [busy, setBusy] = React.useState(null);
-      const [error, setError] = React.useState(null);
-      const [draftId, setDraftId] = React.useState(null);
-      const [draftText, setDraftText] = React.useState('');
-
-      const merged = baseRows.map((row) => (override[row.id] === undefined ? row : { ...row, ...override[row.id] }));
-      const view = selectDecisions({ rows: merged });
-
-      const post = React.useCallback(
-        async (body) => {
-          const response = await fetch(DECIDE_URL, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ ...(sessionId === undefined ? {} : { sessionId }), ...body }),
-          });
-          const envelope = await response.json();
-          if (envelope === null || typeof envelope !== 'object' || envelope.ok !== true) {
-            const detail = envelope !== null && typeof envelope === 'object' && envelope.error !== undefined
-              ? envelope.error.message : undefined;
-            throw new Error(String(detail === undefined || detail === null ? 'unknown' : detail));
-          }
-          return envelope.value;
-        },
-        [sessionId],
-      );
-
-      /**
-       * 把服务端回来的那一行折成补丁。
-       *
-       * **只用服务端回的字段**：`decided_by` / `decided_at` / `decision_value` 是拍板的
-       * 三个证据，客户端不自己编时间戳 —— 编了就无法与台账对账。
-       * 服务端没给（老版本宿主）就保留本地已知值，绝不回退成空。
-       */
-      const patchOf = React.useCallback((row, value, fallbackVerdict) => {
-        const next = value !== null && typeof value === 'object' && value.row !== null && typeof value.row === 'object'
-          ? value.row : {};
-        const writebackState = next.writeback_state === 'ok' || next.writeback_state === 'failed'
-          ? next.writeback_state : row.writebackState;
-        return {
-          verdict: typeof next.verdict === 'string' ? decisionVerdict(next.verdict) ?? fallbackVerdict : fallbackVerdict,
-          status: typeof next.status === 'string' && next.status !== '' ? next.status : row.status,
-          decidedBy: typeof next.decided_by === 'string' && next.decided_by !== '' ? next.decided_by : row.decidedBy,
-          decidedAt: typeof next.decided_at === 'string' && next.decided_at !== '' ? next.decided_at : row.decidedAt,
-          decisionValue: typeof next.decision_value === 'string' && next.decision_value !== ''
-            ? next.decision_value : row.decisionValue,
-          writebackState,
-          writebackError: typeof next.writeback_error === 'string' ? next.writeback_error : row.writebackError,
-        };
-      }, []);
-
-      const write = React.useCallback(
-        (row, body, fallbackVerdict) => {
-          setBusy(row.id);
-          setError(null);
-          post({ id: row.id, ...body }).then(
-            (value) => {
-              setBusy(null);
-              const patch = patchOf(row, value, fallbackVerdict);
-              setOverride((prev) => ({
-                ...prev,
-                [row.id]: { ...(prev[row.id] === undefined ? {} : prev[row.id]), ...patch },
-              }));
-            },
-            (failure) => {
-              /* 失败**不改行**：403（不是本人）、回写失败、网络断 —— 行原样留在原位，
-               * 只多一句错误提示。删行或改序都会让"我点过，但它没了"变成一次事故。 */
-              setBusy(null);
-              setError(failure instanceof Error ? failure.message : String(failure));
-            },
-          );
-        },
-        [post, patchOf],
-      );
-
-      /**
-       * 一行 = **定高 92px 的两列三段网格**（CSS 里有算术）。
-       *
-       * 左列：①标题 ②槽位行（截止 / 影响金额已并入影响行 / 来源 / 默认值占位 / 建议）
-       *       ③影响句
-       * 右列：①状态槽（待拍板 / 已拍板 / 无归属）②回写状态 ③控件
-       *
-       * 六个槽位一个不少，且每个槽位都带 `data-slot`：这样"6 个槽位"是可数的，
-       * 而不是一句口头承诺（断言：`[data-slot]` 恰好 6 个，key 与 `DECISION_SLOTS` 一致）。
-       */
-      const rowNode = (row) => {
-        const slot = decisionSlot(row, t);
-        const emptyOwner = row.owner === '';
-        const slots = Array.isArray(row.slots) ? row.slots : auditDecisionSlots(row).slots;
-        const byKey = {};
-        for (const item of slots) byKey[item.key] = item;
-
-        const optionSlot = byKey.options === undefined ? { text: '', clamped: false } : byKey.options;
-        const dueSlot = byKey.dueAt === undefined ? { text: '', placeholder: true } : byKey.dueAt;
-        const refSlot = byKey.sourceRef === undefined ? { text: '', href: '', empty: true } : byKey.sourceRef;
-        const impactSlot = byKey.impact === undefined ? { text: '', source: 'none' } : byKey.impact;
-
-        /* D5 的形态分工：本人 = 三选项；非本人 = 单个「提建议」。
-         * 空归属走"非本人"那一支，但按钮 disabled —— 条目照常在，只是没人能替它拍板。 */
-        const controls = row.mine === true && !emptyOwner
-          ? h('div', { className: 'tb-dbtns', 'data-slot': 'options', 'data-count': String(Array.isArray(row.options) ? row.options.length : 0), 'data-clamped': optionSlot.clamped === true ? 'true' : 'false' },
-            VERDICTS.map((verdict) => h('button', {
-              type: 'button',
-              className: 'tb-dbtn',
-              key: verdict,
-              'data-verdict': verdict,
-              'data-on': row.verdict === verdict ? 'true' : 'false',
-              disabled: busy === row.id,
-              onClick: () => write(row, { verdict }, verdict),
-            }, t(`decide.verdict.${verdict}`))))
-          : h('div', { className: 'tb-dbtns', 'data-slot': 'options', 'data-count': '0' }, h('button', {
-            type: 'button',
-            className: 'tb-dbtn',
-            'data-action': 'suggest',
-            disabled: emptyOwner || busy === row.id,
-            onClick: () => {
-              setDraftId(row.id);
-              setDraftText(row.suggestion);
-            },
-          }, t('decide.suggest')));
-
-        /* 回写状态（Req6：「已回写」/「回写失败」+ 重试按钮）。失败**不回退、不消失**：
-         * 行还在、决议还在，只是多一颗重试按钮 —— 重试只重发回写，不改决议。 */
-        const writebackNode = row.writebackState === 'ok'
-          ? h('span', { className: 'tb-muted', 'data-writeback': 'ok' }, t('decide.writeback.ok'))
-          : row.writebackState === 'failed'
-            ? h('span', { className: 'tb-dwbfail', 'data-writeback': 'failed', title: row.writebackError }, t('decide.writeback.failed'))
-            : null;
-        const retryNode = row.writebackState === 'failed'
-          ? h('button', {
-            type: 'button',
-            className: 'tb-dbtn',
-            'data-action': 'retry',
-            disabled: busy === row.id,
-            onClick: () => write(row, { retry: true }, row.verdict),
-          }, t('decide.retry'))
-          : null;
-
-        const draft = draftId === row.id && !emptyOwner
-          ? h('div', { className: 'tb-dsuggest' },
-            h('input', {
-              className: 'tb-dinput',
-              type: 'text',
-              value: draftText,
-              placeholder: t('decide.suggestPlaceholder'),
-              onChange: (event) => setDraftText(event.target.value),
-            }),
-            h('button', {
-              type: 'button',
-              className: 'tb-dbtn',
-              'data-action': 'send-suggestion',
-              disabled: busy === row.id || draftText.trim() === '',
-              onClick: () => {
-                const text = draftText.trim();
-                write(row, { suggestion: text }, row.verdict);
-                setDraftId(null);
-                setDraftText('');
-              },
-            }, t('decide.suggestSubmit')),
-            h('button', {
-              type: 'button',
-              className: 'tb-dbtn',
-              'data-action': 'cancel-suggestion',
-              onClick: () => {
-                setDraftId(null);
-                setDraftText('');
-              },
-            }, t('decide.suggestCancel')))
-          : null;
-
-        return h('div', {
-          className: 'tb-drow',
-          key: row.id,
-          'data-decision-id': row.id,
-          'data-mine': row.mine === true ? 'true' : 'false',
-          'data-decided': row.verdict === null ? 'false' : 'true',
-          'data-writeback': row.writebackState,
-        },
-        /* ① 标题槽 */
-        h('div', { className: 'tb-dtitle', 'data-slot': 'title', title: row.title },
-          byKey.title === undefined ? row.title : byKey.title.text),
-        /* ② 槽位行：截止日 / 来源链接 / 默认值占位 / 建议（一条线，放不下就省略） */
-        h('div', { className: 'tb-dslots' },
-          h('span', {
-            className: dueSlot.placeholder === true ? 'tb-dph' : 'tb-down',
-            'data-slot': 'dueAt',
-            'data-placeholder': dueSlot.placeholder === true ? 'true' : 'false',
-          }, dueSlot.placeholder === true ? t(K.noDue) : dueSlot.text),
-          refSlot.href === ''
-            ? h('span', { className: 'tb-dph', 'data-slot': 'sourceRef', 'data-href': '' }, t('decide.noRef'))
-            /* **真 <a href>**：可点是 Req2 的一项，不是装饰。 */
-            : h('a', {
-              className: 'tb-dref',
-              'data-slot': 'sourceRef',
-              'data-href': refSlot.href,
-              href: refSlot.href,
-              target: '_blank',
-              rel: 'noreferrer noopener',
-            }, refSlot.text),
-          h('span', { className: 'tb-dph tb-dgrow', 'data-slot': 'default', 'data-placeholder': 'true' },
-            t('decide.noDefault')),
-          row.suggestion === ''
-            ? null
-            : h('span', { className: 'tb-dsaid tb-dgrow', 'data-slot': 'suggestion', title: row.suggestion }, `✎ ${row.suggestion}`)),
-        /* ③ 影响槽（含金额或截止日；来源文案优先，判定在 decisionImpactSlot） */
-        draft === null
-          ? h('div', { className: 'tb-dimpact', 'data-slot': 'impact', 'data-source': impactSlot.source }, impactSlot.text)
-          : draft,
-        /* 右列上段：状态槽 + 回写状态 */
-        h('div', { className: 'tb-dslot', 'data-kind': slot.key },
-          h('div', null, slot.text),
-          slot.value === undefined ? null : h('div', { className: 'tb-mute' }, slot.value),
-          writebackNode),
-        retryNode === null ? controls : h('div', { className: 'tb-dbtns' }, retryNode, controls));
-      };
-
-      /* 折叠行：「还有 N 条」（D4）。N 来自 `hiddenCount`，不是另算一遍。
-       * 全量口径落在 section 的 `data-hidden-capacity`；**过滤口径**落在 `data-filtered-*`
-       * —— 两个数是两件事（"合格但没摊开" ≠ "不合格"），所以各写各的，绝不合并成一个。 */
-      const foldNode = (count) => h('div', {
-        className: 'tb-dmore',
-        'data-fold': String(count),
-      }, t(K.more, { n: count }));
-
-      let body;
-      if (source.status === 'unavailable') {
-        body = h('div', { className: 'tb-note', 'data-tone': 'warn' }, t('decide.unavailable'));
-      } else if (view.rows.length === 0) {
-        /* 0 条时区块**照样挂载**（K5）：`data-filtered-*` 仍然写得出来，
-         * 于是"渲染 0 条"（Req1）与"隐藏计数可读"（Req2）可以同时成立。 */
-        body = h('div', { className: 'tb-note', 'data-tone': 'mute' }, t('decide.empty'));
-      } else if (view.mode === 'grouped') {
-        body = h('div', null, view.groups.map((group) => h('div', {
-          className: 'tb-dgroup',
-          key: group.key === '' ? '\u0000none' : group.key,
-          'data-group': group.key,
-        },
-        h('div', { className: 'tb-dgroup-head' }, group.key === '' ? t('decide.group.unknown') : group.key),
-        group.visible.map(rowNode),
-        group.hiddenCount === 0 ? null : foldNode(group.hiddenCount))));
-      } else {
-        body = h('div', null,
-          view.visible.map(rowNode),
-          view.hiddenCount === 0 ? null : foldNode(view.hiddenCount));
-      }
-
-      /* 区块属性是**机器可读的真相**：模式、过滤计数、容量折叠计数、待办计数。
-       * 一个都不写成可见文案 —— 这些数字一旦变成正文，读者就会把它当第二个结论。 */
-      return h('section', {
-        className: 'tb-card tb-decide',
-        'data-mode': view.mode,
-        'data-filtered-count': String(view.filtered.admission + view.filtered.slots),
-        'data-filtered-admission': String(view.filtered.admission),
-        'data-filtered-slots': String(view.filtered.slots),
-        'data-hidden-capacity': String(view.hiddenCount),
-        'data-total': String(view.total),
-        'data-pending': String(view.pending),
-        'data-decided': String(view.decided),
-      },
-      h(CardHead, {
-        title: t('decide.title'),
-        sub: t(K.subDecide),
-        /* 待办计数（Req4：拍板后 -1）。它数的是"还没拍的"，不是"一共有几条"。 */
-        right: h('span', { className: 'tb-mute' }, t('decide.pendingCount', { pending: view.pending, total: view.total })),
-      }),
-      error === null ? null : h('div', { className: 'tb-note', 'data-tone': 'warn' }, error),
-      body);
-    }
-
-    function LedgerView(props) {
-      const t = props.t;
-      const sessionId = typeof props.sessionId === 'string' ? props.sessionId : undefined;
-      const [state, setState] = React.useState({ status: 'loading' });
-      const [busy, setBusy] = React.useState(false);
-
-      const load = React.useCallback(
-        async (next) => {
-          const body = { ...(sessionId === undefined ? {} : { sessionId }), ...(next === undefined ? {} : { enabled: next }) };
-          const response = await fetch(STATE_URL, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          const envelope = await response.json();
-          if (envelope === null || typeof envelope !== 'object' || envelope.ok !== true) {
-            const message = envelope !== null && typeof envelope === 'object' && envelope.error !== undefined ? envelope.error.message : 'unknown';
-            throw new Error(String(message));
-          }
-          return envelope.value;
-        },
-        [sessionId],
-      );
-
-      React.useEffect(() => {
-        let alive = true;
-        load().then(
-          (value) => {
-            if (alive) setState({ status: 'ready', value });
-          },
-          (error) => {
-            if (alive) setState({ status: 'failed', message: error instanceof Error ? error.message : String(error) });
-          },
-        );
-        return () => {
-          alive = false;
-        };
-      }, [load]);
-
-      const toggle = React.useCallback(
-        (next) => {
-          setBusy(true);
-          load(next).then(
-            (value) => {
-              setBusy(false);
-              setState({ status: 'ready', value });
-            },
-            (error) => {
-              setBusy(false);
-              setState({ status: 'failed', message: error instanceof Error ? error.message : String(error) });
-            },
-          );
-        },
-        [load],
-      );
-
-      if (state.status === 'loading') {
-        return h('div', { className: 'tb-root' }, h('style', null, STYLES),
-          h('div', { className: 'tb-mute' }, t('state.loading')));
-      }
-      if (state.status === 'failed') {
-        /* 第三态：连宿主都没应答（请求本身失败）。它和「判定不可用」不是一回事 ——
-         * 那是"宿主答了，但答的是'我不知道'"。两种都不许长得像"零阻断"，
-         * 所以这里直接复用 banner 的危险色条 + 原始错误文本。 */
-        return h('div', { className: 'tb-root' }, h('style', null, STYLES),
-          h('section', { className: 'tb-verdict', 'data-tone': 'danger' },
-            h('div', { className: 'tb-verdict-word' }, t('state.error')),
-            h('p', { className: 'tb-verdict-why' }, state.message)));
-      }
-
-      const value = state.value;
-      /* P3-14：关掉时宿主**不产出** `dataSource`（"不读"）。这里**不许**回落成
-       * `{kind:'unavailable'}` —— 那会把"你关了"显示成"它坏了"。
-       *
-       * 判据取自 `gates.status === 'disabled'`（那是开关的第五态，关掉时一定会带），
-       * 而不是"dataSource 缺了就当成关掉"：后者会把任何一次字段缺失都解释成
-       * 用户主动关闭，等于给下一个 bug 发一张免罪证。 */
-      const gates = value.gates !== null && typeof value.gates === 'object' ? value.gates : {};
-      const switchOff = gates.status === 'disabled';
-      const source = value.dataSource !== null && typeof value.dataSource === 'object'
-        ? value.dataSource
-        : (switchOff ? { kind: 'disabled' } : { kind: 'unavailable' });
-      const detail = sourceDetail(source, t);
-
-      /* 阅读顺序 = 重要度顺序，窄窗口退化成一列时也照这个顺序读：
-       *   ① 顶栏（标题 · 数据源 · 开关）—— 元信息，最小
-       *   ② 总判 banner                —— 整页第一眼，最大
-       *   ③ 待拍板（通栏）              —— 还没拍的事：这是页面上唯一"要动手"的一块
-       *   ④ 门禁（按根因聚合）｜角色台账  —— 左主视图 + 右明细栏
-       *   ⑤ 任务板                     —— 支撑材料，可滚可折叠
-       *   ⑥ 页脚的一句"这页回答什么"    —— 最轻
-       * 上一版是四张等宽通栏卡片，把"判决"和"元信息"排成了同样的重量 ——
-       * 于是判决被埋、开关浮在空白里、整页读完不知道重点在哪。 */
-      return h('div', { className: 'tb-root' },
-        h('style', null, STYLES),
-
-        /* ① 顶栏：标题 + 数据源徽章 + 开关，**同一行**（开关不再单独占一行飘着） */
-        h('section', { className: 'tb-card' },
-          h('div', { className: 'tb-card-head tb-card-head-top' },
-            h('div', { className: 'tb-top-left' },
-              h('div', { className: 'tb-card-head-text' },
-                h('span', { className: 'tb-page-title' }, t('page.title')),
-                h('div', { className: 'tb-card-sub' }, t(K.subAgent))),
-              h(SourceBadge, { source, t })),
-            h('div', { className: 'tb-top-right' },
-              detail.count === null ? null : h('span', { className: 'tb-mute tb-badge-n' }, detail.text),
-              h(SwitchRow, { enabled: value.enabled === true, busy, onToggle: toggle, t }))),
-          /* 读不出来时：这一行是**解释**，且明说"不是 0 条"；读到了才给数字。 */
-          detail.count === null ? h('div', { className: 'tb-note', 'data-tone': 'warn' }, detail.text) : null),
-
-        /* ② 总判 */
-        h(VerdictBanner, { gates: value.gates, t }),
-
-        /* ③ 待拍板（**通栏**，D1：VerdictBanner 之后、.tb-grid 之前；不进右栏 rail） */
-        h(DecideCard, { decisions: gates.decisions, t, sessionId }),
-
-        /* ③b 会议账本（通栏）：整页唯一回答**进度**的一块。
-         * 放在"待拍板"之后、"门禁结论"之前 —— 读者先看见"要你动手的事"，
-         * 再看"这场会开到哪了"，最后才是"这批活能不能收"的细节。 */
-        h(MeetingCard, { ledger: gates.ledger, t }),
-
-        /* ④ 左：门禁结论（按根因聚合）｜ 右：角色台账（成绩排名） */
-        h('div', { className: 'tb-grid' },
-          h(GateCard, { gates: value.gates, t }),
-          h('div', { className: 'tb-rail' },
-            h(LedgerCard, { ledger: value.roleLedger, t }))),
-
-        /* ④b 门禁覆盖（通栏）：三个分母 + 声明块警告。
-         * 在任务板**之前**：先说"这一轮到底核了什么"，再给支撑材料；
-         * 反过来读者会先看到一堆任务、后才知道那些任务一条都没被核。 */
-        h(ShadowCard, { shadow: gates.shadow, tasks: gates.tasks, t }),
-
-        /* ⑤ 任务板：宿主给结构化 tasks 就铺行，没给就诚实降级 + 折叠原文 */
-        h(BoardCard, { tasks: gates.tasks, raw: gates.board, t }),
-
-        h('div', { className: 'tb-foot' }, t('page.footer')));
-    }
-
-    /* ═══════════════════════════════════════════════════════════════════════
-     * 三、Client 插件体
-     * ═══════════════════════════════════════════════════════════════════════ */
+    const UnifiedClientPanel = reviewClient.createReviewPanel(React, h);
 
     const zh = {
       /* 会议账本 / 门禁覆盖 / 声明警告（本轮新增）。
@@ -4068,7 +2850,7 @@ return { reviewMessages, createReviewPanel, reviewViewModel, createReviewRequest
               /* 会话作用域的 list slot 会把 sessionId 交给 inject，页面据此向宿主问这个会话的队况。 */
               inject: (sessionId) => ({ sessionId }),
             },
-            (props) => h(React.Fragment, null, h(ReviewClientPanel, { ...props, t, key: props.sessionId }), h(LedgerView, { ...props, t })),
+            (props) => h(UnifiedClientPanel, { ...props, t, key: props.sessionId }),
           ),
         );
       },

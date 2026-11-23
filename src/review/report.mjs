@@ -29,7 +29,7 @@ export function renderReport(run) {
   lines.push('', '## 后续实施要求', '');
   for (const task of currentTasks(run)) lines.push(`- ${task.id}：${task.objective}${reuseText(task, run)}。决定：${task.decisionIds.join(', ')}。写入范围：${task.writeScopes.join(', ') || '实施前确定'}。`, ...task.acceptance.map((criterion) => `  - 检查条件：${criterion}`));
   lines.push('', '## 用户事项', '');
-  for (const question of run.questions) lines.push(`- ${question.id}：${question.question} [${question.status}]`, ...question.options.map((option) => `  - ${option.id}：${option.label}。${option.description}`), ...(question.answer ? [`  - 用户选择：${question.answer}`] : []));
+  for (const question of run.questions) lines.push(`- ${question.id}：${question.question} [${question.status}${question.applicability === 'stale' ? '/stale' : ''}]${question.requirementRevision === undefined ? '' : `。来源需求版本：${question.requirementRevision}`}`, ...question.options.map((option) => `  - ${option.id}：${option.label}。${option.description}`), ...(question.answer ? [`  - 用户选择：${question.answer}`] : []));
   lines.push('', '## 实现与验证', '');
   for (const execution of run.executions.filter((entry) => ['build', 'verify'].includes(entry.stageId))) lines.push(`- ${execution.stageId} ${execution.executionId} [${execution.workStatus}/${execution.applicability}]：${execution.result?.summary ?? execution.diagnostic ?? ''}。代码摘要：${execution.codeFingerprint ?? '见文件记录'}。`);
   if (run.workspace) lines.push(...(run.workspace.changes ?? []).map((change) => `- ${change.kind} ${change.path}`));

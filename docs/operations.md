@@ -2,7 +2,7 @@
 
 **简体中文** | [English](en/operations.md)
 
-在 Team Board 的开关打开、DSH 运行依赖就绪后，模型可使用以下五个公开工具。新流程要求 subagents 和全新上下文 provider；旧团队任务板、会议与历史导入还需官方 Agent Teams。两个功能开关分别设置，安装前先阅读[依赖与启用检查](dependencies.md)。运行结构见[架构说明](architecture.md)，宿主环境与验证范围见[兼容性说明](compatibility.md)。
+打开 Team Board 开关后，模型可使用以下五个公开工具。环境准备见[依赖与启用](dependencies.md)，运行结构见[架构说明](architecture.md)。
 
 | 工具 | 用途 |
 |---|---|
@@ -63,7 +63,7 @@ pause 等当前已启动阶段结束后暂停。stop 立即释放当前执行并
 {"runId":"运行ID","operationId":"revision-2","requirement":"完整的新需求","reason":"变化原因","impact":{"decisionIds":[],"taskIds":["task-1-1"],"checkIds":["node-tests"],"paths":["src/clamp.mjs"],"review":"reuse"}}
 ```
 
-review 为 reuse 时保留有效 intake、评审与决定，只重做受影响实现、检查和独立验证；依赖该任务的任务也重做。review 为 rerun 时重新评审与形成决定。程序检查引用是否存在。旧输出保留，报告标明复用来源版本。
+review 为 reuse 时复用有效 intake 和独立评审。指定 decisionIds 会重新形成受影响决定，使原决定、相关任务及下游任务失效，并按新要求生成后续工作。仅指定 taskIds、paths 或 checkIds 时，保留决定，重做对应实现和检查。review 为 rerun 时从需求梳理重新执行。旧问题、回答、决定和报告保留来源版本，旧回答对应的决定失效后不再作为当前依据。连续修订会保留还未更新的目标与完成条件，避免前一次修改被后一次覆盖。
 
 ## 开发与机器检查
 
@@ -123,16 +123,18 @@ references 支持本地路径、可选 symbol 文本定位、Node 内置模块�
 POST /api/team-board/state
 Content-Type: application/json
 
-{"enabled":true,"sessionId":"当前根会话ID"}
+{"enabled":true,"sessionId":"当前根会话ID","settingsOnly":true}
 ```
 
-enabled 在生成快照前保存。sessionId 用于读取该会话数据，单独修改开关只需 enabled。验证前先用同路由读取原值，验证完成恢复原值。请求应使用当前 GUI 的正常已认证 transport；若宿主返回访问错误，按其访问方式处理。
+enabled 保存开关状态。新页面固定发送 settingsOnly:true，仅返回 enabled，不读取团队任务、成员或角色记录。请求使用当前 GUI 已认证的连接。
 
 此路由来自原有用户开关，review 沿用同一设置。新运行无需写 profile 文件。
 
 ## 运行页面与结构化接口
 
-团队台账页签保留原任务板和设置，上方增加评审与开发运行区。用户可启动 review/develop、选择 quick@2/standard@2、暂停或继续、修订需求、回答待选问题，并分页读取角色执行、意见、决定、任务、检查、报告和日志。页面以当前会话列出运行，切目录后也查询日志索引中记录的原项目。刷新按钮重新读取状态，读失败显示具体错误并保留输入。
+Team Board 使用总览、讨论、任务和结果四个页签。页头创建或选择评审开发任务，并提供开关与刷新。总览突出待选问题或当前工作，讨论连接意见与决定，任务展示实施要求，结果分别呈现机器检查、独立意见和报告。相关记录与日志按需打开。
+
+用户可选择 review/develop 与 quick@2/standard@2，控制运行、修订需求及回答问题。页面读取当前会话的运行，切目录后仍通过日志索引定位原项目。运行自身的历史、问题、输出和报告保留在记录入口。
 
 页面操作使用同一 ReviewService。已认证 owner 请求提交到：
 
@@ -154,14 +156,10 @@ Host 用 connection.admit 和 exact live root Agent 确定身份，再执行 com
 | pause / stop / resume / retry / cancel | runId、operationId；可选 expectedRevision |
 | revise | runId、operationId、requirement、reason；可选 expectedRevision、impact |
 | decide | runId、questionId、optionId、operationId；可选 expectedRevision |
-| history | 可选 historyId、cursor |
-| import | historyId、requestId；可选 requirement、preset、mode |
 
 路由返回 `{ok:true,value:{commandId,result:{kind,text}}}`，text 为业务结果 JSON。调用方同时检查 ok 和 result.kind。业务失败保留 kind=error 与具体文本，认证或路由错误返回 `{ok:false,error:{code,message}}`。command/run 与 command/done 均由宿主记录，顶层 runId/projectRoot 结果供原 session-index 定位。重复投递保留原 requestId 或 operationId，已接受的重复操作先去重，再检查 revision。新操作遇到旧 expectedRevision 时显示 REVISION_CONFLICT，刷新状态后保留草稿。
 
-read section 保留原分区，新增 checkSpecs（定义）、checkResults（结果）、usage（可追溯统计）。列表每页 20 项，正文每页 16000 字符，nextCursor 为下一页起点。页面按页替换并提供上一页，内存不会因连续读日志而无限累积。details 的 view-model 为 src/review/view-model.mjs 中 reviewViewModel(runDetail, section, page)，其中 runDetail 来自 read/run，page 来自选定分区。页面源码为 client/review-panel.mjs，npm run build:client 将它与 view-model 内联进分发 client.js，validate-package 校验产物和 locale 一致性。
-
-历史任务默认只读，读取不会 recover/kick。显式 import 创建新 run，保存来源 session/task/revision/meeting/preset、内容 digest、导入时间和操作者。旧证据标记 imported/unknown，新执行补齐当前结果，原任务保持原样。用户选择继续由页面或命令提交，模型工具没有 decide。
+read section 保留原分区，新增 checkSpecs（定义）、checkResults（结果）、usage（可追溯统计）。列表每页 20 项，正文每页 16000 字符，nextCursor 为下一页起点。页面按页替换并提供上一页，内存不会因连续读日志而无限累积。details 的 view-model 为 src/review/view-model.mjs 中 reviewViewModel(runDetail, section, page)，其中 runDetail 来自 read/run，page 来自选定分区。页面源码为 client/review-panel.mjs，请求状态、样式和文案分别放在同目录的小模块中。npm run build:client 将这些模块与 view-model 一起内联进分发 client.js，validate-package 校验产物和 locale 一致性。
 
 usage 从子会话已提交 assistant/message.data.usage 读取，保存 eventSeqs 来源，observation 用完即释放。时间来自 execution.startedAt/endedAt 和 run.createdAt/updatedAt，返工来自已保存 rework.count。缺失 token、人工处理时间和旧返工值用 null/unknown。读取支持请求取消，卸载取消并等待 observation 释放。读取 usage 时应同时检查完整性，缺失项不能当作零。产品默认值为 standard@2、20 分钟阶段超时及两轮返工；公开试用汇总见[试用结果](practice-results.md)。
 

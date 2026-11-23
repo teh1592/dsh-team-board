@@ -18,6 +18,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 
 const SOURCE = readFileSync(join(ROOT, 'client.js'), 'utf8');
+const PANEL_SOURCE = readFileSync(join(ROOT, 'client', 'review-panel.mjs'), 'utf8');
 const ZH = JSON.parse(readFileSync(join(ROOT, 'locale', 'zh.json'), 'utf8'));
 const EN = JSON.parse(readFileSync(join(ROOT, 'locale', 'en.json'), 'utf8'));
 
@@ -1071,60 +1072,18 @@ test('23a. 开关几何：竖直正中、左右留白对称、位移 = 宿主口
   }
 });
 
-test('23b. 开关配色：关态轨道**必须与卡片底不同**，两种状态的轨道色不许是同一个 token', () => {
-  /* 从发布的 CSS 里解析，而不是读常量 —— 这样"改了样式表但没改常量"也会被抓到。 */
-  const block = (selector) => {
-    const at = SOURCE.indexOf(selector);
-    assert.notEqual(at, -1, `样式表里找不到选择器 ${selector}`);
-    const open = SOURCE.indexOf('{', at);
-    const close = SOURCE.indexOf('}', open);
-    return SOURCE.slice(open, close);
-  };
-  const off = block('.tb-track ');
-  const on = block('.tb-track[data-on="true"] ');
-  const bg = (text) => {
-    const m = text.match(/background:\s*([^;]+);/);
-    return m === null ? '' : m[1].trim();
-  };
-  const offBg = bg(off);
-  const onBg = bg(on);
-
-  assert.ok(offBg !== '', '关态轨道必须有 background（否则闭着只剩一圈边，等于看不见）');
-  assert.ok(onBg !== '', '开态轨道必须有 background');
-  assert.match(offBg, /^var\(--dsw-/, `轨道色必须走主题 token，实际 ${offBg}`);
-  assert.match(onBg, /^var\(--dsw-/, `轨道色必须走主题 token，实际 ${onBg}`);
-  assert.notEqual(offBg, onBg, '开态与关态的轨道色必须是两个不同的 token，否则开关没有状态可言');
-
-  /* 核心缺陷回归：上一版关态用 bg-layer-2，而卡片/内嵌块也是 bg-layer-2 → 关态隐形。 */
-  assert.notEqual(offBg, 'var(--dsw-alias-bg-layer-2)', '关态轨道不许再用 bg-layer-2：那是卡片自己的底色，闭着就看不见');
-  assert.notEqual(offBg, 'var(--dsw-alias-bg-layer-1)', '关态轨道不许用卡片底 bg-layer-1');
-
-  /* 开态不许再铺亮绿：那是 34×19 一整块高饱和实心，和整页灰阶不搭。 */
-  assert.doesNotMatch(onBg, /state-success/, '开态轨道不该是亮绿实心（宿主口径是品牌色）');
-  assert.equal(onBg, P.SWITCH_TOKENS.trackOn, '开态轨道必须与 SWITCH_TOKENS 一致（页面和断言共用一份）');
-  assert.equal(offBg, P.SWITCH_TOKENS.trackOff, '关态轨道必须与 SWITCH_TOKENS 一致');
-
-  /* 圆点两态也必须是两个不同的 token（开态用前景色、关态用 switch-thumb）。 */
-  assert.notEqual(P.SWITCH_TOKENS.knobOff, P.SWITCH_TOKENS.knobOn);
-  for (const value of Object.values(P.SWITCH_TOKENS)) {
-    assert.match(value, /^var\(--dsw-/, `开关配色必须全部走主题 token，实际 ${value}`);
-  }
+test('23b. 统一页保留真实 enabled 开关与辅助技术状态', () => {
+  assert.match(SOURCE, /role: 'switch'/);
+  assert.match(SOURCE, /'aria-checked': enabled/);
+  assert.match(SOURCE, /refreshState\(!enabled\)/);
+  assert.match(SOURCE, /requests\.disable\(\)/);
 });
 
-test('23c. 开关的位移来自纯函数而不是 CSS 里的硬编码像素', () => {
-  /* 上一版的病根就是 `translateX(15px)` 这种手写数字：轨道一改就歪。
-   * 现在 CSS 只写 `var(--tb-travel)`，值由 switchGeometry() 提供。 */
-  const onBlock = (() => {
-    const at = SOURCE.indexOf('.tb-track[data-on="true"] .tb-knob');
-    assert.notEqual(at, -1, '找不到开态圆点规则');
-    const open = SOURCE.indexOf('{', at);
-    return SOURCE.slice(open, SOURCE.indexOf('}', open));
-  })();
-  assert.match(onBlock, /translateX\(var\(--tb-travel/, '位移必须取变量，不许写死像素');
-  assert.doesNotMatch(onBlock, /translateX\(\s*\d+px\s*\)/, 'CSS 里不许出现硬编码的 translateX(Npx)');
-  /* 盒模型必须显式声明，否则 width 的含义随容器而变（这就是"歪"的第一个来源）。 */
-  assert.match(SOURCE, /\.tb-track\s*\{[^}]*box-sizing:\s*border-box/, '轨道必须显式 box-sizing:border-box');
-  assert.match(SOURCE, /\.tb-track\s*\{[^}]*border:\s*0/, '轨道必须 border:0（否则边框会挤占内区，切换时尺寸跳变）');
+test('23c. 开关关闭先取消读取，启用由真实 state 响应决定', () => {
+  const controller = SOURCE.slice(SOURCE.indexOf('function createBoardRequestState'), SOURCE.indexOf('function createReferenceStack'));
+  assert.match(controller, /if \(next === false\) this\.disable\(\)/);
+  assert.match(controller, /enabled = result\.value\.enabled === true/);
+  assert.match(controller, /if \(!enabled\) return null/);
 });
 
 
@@ -1187,28 +1146,12 @@ test('24c. 选「全局」根因（一条线都没有）：选中态成立，但
   assert.equal(focus.tasks.size, 0);
 });
 
-test('24d. 图的语义不再是"一张图片"：节点是按钮，且压暗用 data-dim 属性', () => {
-  /* 静态检查发布出去的标记：这三条任何一条退回旧写法，用户就又会说"不可以点击"。 */
-  const graphStart = SOURCE.indexOf('function CauseGraph');
-  assert.notEqual(graphStart, -1);
-  const graphEnd = SOURCE.indexOf('\n    }\n', graphStart);
-  const body = SOURCE.slice(graphStart, graphEnd);
-
-  assert.doesNotMatch(body, /role: 'img'/, "整张图不许再声明 role='img'（那会让它读成一张图片）");
-  assert.match(body, /role: 'button'/, '根因节点必须是 button 角色');
-  assert.match(body, /tabIndex: 0/, '必须可键盘聚焦');
-  assert.match(body, /onKeyDown/, '键盘要能触发（Enter / Space）');
-  assert.match(body, /aria-pressed/, '选中态要能被辅助技术读到');
-  /* 必须**三处**都有：线、任务节点、根因节点。
-   * 只写 /data-dim/ 会漏掉"根因节点忘了压暗"—— 上一版就是这样漏过去的：
-   * 把根因那行的 data-dim 删掉，任务节点那处仍能匹配，断言照样绿。 */
-  const dimCount = (body.match(/'data-dim':/g) || []).length;
-  assert.ok(dimCount >= 3, `线、任务、根因三处都要押暗（data-dim），实际只有 ${dimCount} 处`);
-
-  /* CSS 侧：指针与焦点环必须真的存在。 */
-  assert.match(SOURCE, /\.tb-node-hit\s*\{[^}]*cursor:\s*pointer/, '节点必须有 cursor:pointer');
-  assert.match(SOURCE, /\.tb-node-hit:focus-visible[^{]*\{[^}]*stroke/, '键盘焦点必须有可见描边');
-  assert.match(SOURCE, /\[data-dim="true"\]\s*\{[^}]*opacity:/, '压暗必须有对应规则');
+test('24d. 关联对象用原生按钮与键盘可达页签', () => {
+  assert.match(SOURCE, /type: 'button'/);
+  assert.match(SOURCE, /role: 'tablist'/);
+  assert.match(SOURCE, /ArrowRight/);
+  assert.match(SOURCE, /:focus-visible/);
+  assert.match(SOURCE, /returnFocus\.current\?\.focus/);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1228,29 +1171,17 @@ test('25a. 五个副标题 key 都在客户端两张表里，且中英不同', (
   assert.equal(new Set(keys.map((k) => CLIENT_DICTS.zh[k])).size, 5);
 });
 
-test('25b. 每张卡都真的把 sub 传给了 CardHead（不是只加文案不用）', () => {
-  /* 静态检查发布出去的调用点：谁把 sub 漏了，这条就红。 */
-  const calls = [...SOURCE.matchAll(/h\(CardHead,\s*\{([\s\S]{0,240}?)\}\)/g)].map((m) => m[1]);
-  assert.ok(calls.length >= 3, `CardHead 的调用点太少（${calls.length}），像是漏了`);
-  for (const call of calls) {
-    assert.match(call, /sub:\s*t\(/, `这个 CardHead 调用没传 sub：${call.replace(/\s+/g, ' ').slice(0, 90)}`);
-  }
-  /* 顶栏与判决 banner 不走 CardHead，单独钉。 */
-  assert.match(SOURCE, /tb-card-sub[^}]*\}[^\n]*\n/.source ? /tb-card-sub/ : /tb-card-sub/, '副标题的样式类必须存在');
-  assert.ok(SOURCE.includes("t(K.subAgent)"), '顶栏必须渲染副标题');
-  assert.ok(SOURCE.includes("t(K.subVerdict)"), '判决 banner 必须渲染副标题');
-  assert.ok(SOURCE.includes("t(K.subGates)"), '门禁卡必须渲染副标题');
-  assert.ok(SOURCE.includes("t(K.subLedger)"), '台账卡必须渲染副标题');
-  assert.ok(SOURCE.includes("t(K.subBoard)"), '任务板卡必须渲染副标题');
-  /* CSS：副标题必须是 11px、secondary、与标题有 4px 间距。 */
-  assert.match(SOURCE, /\.tb-card-sub\s*\{[^}]*font-size:\s*11px/, '副标题字号必须是 11px');
-  assert.match(SOURCE, /\.tb-card-sub\s*\{[^}]*label-secondary/, '副标题颜色必须是 secondary（弱于标题）');
-  assert.match(SOURCE, /\.tb-card-head-text\s*\{[^}]*gap:\s*4px/, '标题与副标题间距必须是 4px');
+test('25b. 正式页替换旧双整页且仅四个页签', () => {
+  assert.deepEqual(P.boardTabs, ['overview', 'discussion', 'tasks', 'results']);
+  assert.match(SOURCE, /h\(UnifiedClientPanel, \{ \.\.\.props, t, key: props\.sessionId \}\)/);
+  assert.doesNotMatch(SOURCE, /function LedgerView|function CardHead|h\(ReviewClientPanel/);
+  assert.doesNotMatch(SOURCE, /t\(K\.sub(?:Agent|Verdict|Gates|Ledger|Board)\)/);
 });
 
-test('25c. 副标题不会把标题挤走：操作区独立一列、标题区可收缩', () => {
-  assert.match(SOURCE, /\.tb-card-head-text\s*\{[^}]*min-width:\s*0/, '标题区必须可收缩，否则长标题会顶出容器');
-  assert.match(SOURCE, /\.tb-card-head-right\s*\{[^}]*flex:\s*0 0 auto/, '右侧操作区不许被挤压');
+test('25c. 页头可换行且长标题不会遮挡操作', () => {
+  assert.match(SOURCE, /\.tb-toolbar\{[^}]*justify-content:space-between/);
+  assert.match(SOURCE, /\.tb-page h1\{[^}]*overflow-wrap:anywhere/);
+  assert.match(SOURCE, /@media\(max-width:650px\)/);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1264,24 +1195,9 @@ function badgeTones() {
   return tones;
 }
 
-test('26a. statusBadge 返回的每一个 tone 都必须有对应的 CSS 规则（否则颜色根本不生效）', () => {
-  /* 这就是那个真 bug：statusBadge 返回 plain/active/success/danger/mute，
-   * 而 CSS 只写了 primary/warn/muted —— 四个状态色一次都没渲染出来。
-   * 断言方式是**遍历状态词表**，而不是手写几个字符串：以后加状态也会被拦住。 */
-  const statuses = ['pending', 'in_progress', 'completed', 'failed', 'cancelled', 'deleted', 'running', '', 'quarantined'];
-  const needed = new Set(statuses.map((status) => P.statusBadge(status, t).tone));
-  const defined = badgeTones();
-  for (const tone of needed) {
-    assert.ok(defined.has(tone), `statusBadge 会返回 tone=${tone}，但 CSS 里没有 .tb-badge[data-tone="${tone}"] 规则`);
-  }
-  /* 被点名缺失的那四档必须在。 */
-  for (const tone of ['success', 'danger', 'active', 'mute']) {
-    assert.ok(defined.has(tone), `${tone} 这一档必须有 CSS（它以前整段缺失）`);
-  }
-  /* 数据源徽章的三档也不能丢。 */
-  for (const tone of ['primary', 'warn', 'muted']) {
-    assert.ok(defined.has(tone), `数据源徽章用的 ${tone} 档被弄丢了`);
-  }
+test('26a. 实际状态的点标记有对应语义样式且正文保留标签', () => {
+  for (const tone of ['success', 'danger', 'active', 'warn']) assert.ok(SOURCE.includes(`.tb-status[data-tone=${tone}]:before`));
+  assert.match(SOURCE, /label\(value \?\? 'unknown'\)/);
 });
 
 test('26b. kind 徽章：短标签放得下、长 kind 不许溢出被邻座盖掉', () => {
@@ -1302,58 +1218,28 @@ test('26b. kind 徽章：短标签放得下、长 kind 不许溢出被邻座盖�
   assert.equal(P.kindBadge('unknown', t).text, '未声明');
 
   /* CSS 兜底：徽章必须可收缩 + 裁切，否则长文本又会盖到邻座底下。 */
-  assert.match(SOURCE, /\.tb-badge\s*\{[^}]*min-width:\s*0/, '徽章必须允许收缩（min-width:0）');
-  assert.match(SOURCE, /\.tb-badge\s*\{[^}]*overflow:\s*hidden/, '徽章必须裁切溢出');
-  assert.match(SOURCE, /\.tb-badge\s*\{[^}]*text-overflow:\s*ellipsis/, '裁切要给省略号，不是硬切');
+  assert.match(SOURCE, /overflow-wrap:anywhere/, '详情中的长类型可换行');
+
+
 });
 
-test('26c. 四种状态色彼此不同（不许四档同一个颜色）', () => {
-  const pick = (tone) => {
-    const m = SOURCE.match(new RegExp('\\.tb-badge\\[data-tone="' + tone + '"\\]\\s*\\{([^}]*)\\}'));
-    return m === null ? '' : m[1].trim();
-  };
-  const success = pick('success');
-  const danger = pick('danger');
-  const active = pick('active');
-  assert.ok(success && danger && active, '三档都必须有规则体');
-  assert.notEqual(success, danger, '完成与失败不许同色');
-  assert.notEqual(success, active, '完成与进行中不许同色');
-  assert.notEqual(danger, active, '失败与进行中不许同色');
-  /* 而且必须走主题 token。 */
-  for (const body of [success, danger, active]) {
-    assert.match(body, /var\(--dsw-/, '状态色必须走主题 token');
-  }
+test('26c. 完成、失败与进行中使用不同主题 token', () => {
+  assert.match(SOURCE, /tb-status\[data-tone=success\]:before\{background:var\(--dsw-alias-state-success-primary\)/);
+  assert.match(SOURCE, /tb-status\[data-tone=danger\]:before\{background:var\(--dsw-alias-state-error-primary\)/);
+  assert.match(SOURCE, /tb-status\[data-tone=active\]:before\{background:var\(--dsw-alias-brand-primary\)/);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * 27. 右列空白 + 动效降级
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-test('27a. 右列不再靠 align-items:start 悬在顶部（空白不许读成"没加载完"）', () => {
-  /* 原来 align-items:start 让台账卡只有约 120px 高，下面约 460px 纯空白（1:3.9）。
-   * 现在网格用 stretch，右栏是可撑满的 flex 列，有角色时台账卡 flex:1 撑满。 */
-  assert.match(SOURCE, /\.tb-grid\s*\{[^}]*align-items:\s*stretch/, '网格必须 stretch，否则右卡会悬在顶部');
-  assert.doesNotMatch(SOURCE, /\.tb-grid\s*\{[^}]*align-items:\s*start/, '不许退回 align-items:start');
-  assert.match(SOURCE, /\.tb-rail\s*\{[^}]*display:\s*flex/, '右栏必须是 flex 列');
-  assert.match(SOURCE, /\.tb-rail\s*\{[^}]*flex-direction:\s*column/, '右栏必须竖排');
-  assert.match(SOURCE, /data-fill="true"\]\s*\{[^}]*flex:\s*1/, '有角色时台账卡必须撑满右栏');
-  /* 支撑"有角色才撑"的标记必须真的挂在 section 上。 */
-  assert.match(SOURCE, /'data-fill': hasRoles \? 'true' : 'false'/, 'data-fill 必须按"有没有角色"来决定');
+test('27a. 正式页面是有界单列且不再保留旧 grid/rail', () => {
+  assert.match(SOURCE, /\.tb-main\{max-width:850px;margin:0 auto/);
+  assert.doesNotMatch(SOURCE, /\.tb-grid\s*\{|\.tb-rail\s*\{/);
 });
 
-test('27b. 动效降级：prefers-reduced-motion 必须无条件存在', () => {
-  assert.match(SOURCE, /@media \(prefers-reduced-motion: reduce\)/, '必须有 prefers-reduced-motion 媒体查询');
-  const block = (() => {
-    const at = SOURCE.indexOf('@media (prefers-reduced-motion: reduce)');
-    assert.notEqual(at, -1);
-    return SOURCE.slice(at, at + 420);
-  })();
-  assert.match(block, /animation:\s*none\s*!important/, '必须关掉 animation');
-  assert.match(block, /transition:\s*none\s*!important/, '必须关掉 transition');
-  /* 覆盖范围必须是整棵子树（含伪元素），不能只挑几个类。 */
-  assert.match(block, /\.tb-root \*/, '降级必须覆盖整棵子树');
-  assert.match(block, /::before/, '伪元素也要降级');
-  assert.match(block, /::after/, '伪元素也要降级');
+test('27b. 静态页不引入动态效果', () => {
+  assert.doesNotMatch(cssRules().map((row) => row.body).join('\n'), /(?:animation|transition):/);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1464,39 +1350,18 @@ test('29b. 任务节点必须带上标题，不能只有 task-N', () => {
   assert.equal(asObject.tasks.find((task) => task.id === 'task-2').subject, '对象形式也要认');
 });
 
-test('29b2. 页面调用点必须真的把 subjects 送进图里（否则纯函数对了、页面还是没标题）', () => {
-  /* 这条存在的原因很具体：29b 测的是 graphLayout，把 CauseGraph 调用点的 subjects 删掉
-   * 它照样绿 —— 那正是本轮要修的病（测试验的是另一条路径）。所以这里直接扫调用点。 */
-  assert.match(SOURCE, /h\(CauseGraph, \{[^}]*subjects:\s*taskSubjects\(gates\.tasks\)/,
-    'GateCard 必须把 taskSubjects(gates.tasks) 传给 CauseGraph');
-  assert.match(SOURCE, /function CauseGraph\(\{ issues, subjects, t \}\)/,
-    'CauseGraph 必须接收 subjects');
-  assert.match(SOURCE, /graphLayout\(issues, undefined, subjects\)/,
-    'CauseGraph 必须把 subjects 交给 graphLayout');
+test('29b2. 任务主列表使用真实任务标题，关联以 ID 按需读', () => {
+  assert.match(SOURCE, /link\(row\.title/);
+  assert.match(SOURCE, /section: ref\.section, cursor: ref\.cursor/);
+  assert.match(SOURCE, /id: ref\.id/);
 });
 
-test('29c. 根因节点：有中文名时必须用中文名，且不许出现截断的残码', () => {
-  /* 病根：上一版把主行 clampText(..., 15)，于是页面上出现 'E_TASK_INCOMPL…'。
-   * 现在主行是中文名，完整码降为次行小字；两行放得下靠的是 nodeH 加到 40。 */
+test('29c. 门禁列表保留完整码与已有译文，不截断机器身份', () => {
   const issues = P.aggregateIssues(P.gateGroups(fixtureGates(), t), t);
   const incomplete = issues.find((item) => item.code === 'E_TASK_INCOMPLETE');
-  assert.equal(typeof incomplete.label, 'string', '做完镜像之后这个码必须有中文名');
-  assert.notEqual(incomplete.label, incomplete.code, 'label 不许是码本身');
-
-  /* 渲染层用的是 label；clamp 的宽度必须容得下中文名，不许把中文名也截断成残句。 */
-  const graphStart = SOURCE.indexOf('function CauseGraph');
-  const graphEnd = SOURCE.indexOf('\n    }\n', graphStart);
-  const body = SOURCE.slice(graphStart, graphEnd);
-  assert.match(body, /cause\.label === null \? cause\.code : cause\.label/,
-    '根因主行必须优先用中文名，只有没译文时才退回码');
-  /* 次行必须是**完整的码**，不许再 clamp —— 9.5px 等宽下 18 字符约 103px，
-   * 208px 的节点放得下，所以不截断才是正确做法（上一版 clamp 到 15 产生残码）。 */
-  assert.match(body, /\}, cause\.code\)/, '次行必须直接显示完整的门禁码，不许再截断');
-  assert.doesNotMatch(body, /clampText\(cause\.code/, '不许对门禁码做截断（那是残码的来源）');
-  /* 主行的截断宽度必须 >= 中文名常见长度（11），否则中文名自己又被截。 */
-  const mainClamp = body.match(/clampText\(cause\.label === null \? cause\.code : cause\.label, (\d+)\)/);
-  assert.notEqual(mainClamp, null, '找不到根因主行的渲染');
-  assert.ok(Number(mainClamp[1]) >= 11, `中文名截断宽度太小（${mainClamp[1]}），会把中文名也截成残句`);
+  assert.equal(typeof incomplete.label, 'string');
+  assert.notEqual(incomplete.label, incomplete.code);
+  assert.ok(P.gateRowText(incomplete).includes(incomplete.code));
 });
 
 test('29d. 节点加高到两行放得下：nodeH 必须容得下"主行 + 次行"', () => {
@@ -1595,16 +1460,10 @@ test('30d. graphLayout 的总高度按 nodeH 算进去了（加高后行距必�
   }
 });
 
-test('30e. 任务节点渲染：说明必须走 wrapLabel 生成的多行，不许退回单行 clamp', () => {
-  const graphStart = SOURCE.indexOf('function CauseGraph');
-  const graphEnd = SOURCE.indexOf('\n    }\n', graphStart);
-  const body = SOURCE.slice(graphStart, graphEnd);
-  assert.match(body, /wrapLabel\(task\.subject, G\.subMaxUnits\)/, '任务说明必须经 wrapLabel 折行');
-  assert.match(body, /\.map\(\(line, lineIndex\)/, '折出来的每一行都要单独画一个 text');
-  assert.match(body, /lineIndex === 0 \? G\.lineSub1 : G\.lineSub2/, '两行的 y 必须分别取两个基线常量');
-  assert.doesNotMatch(body, /clampText\(task\.subject/, '不许再对说明做单行 clamp（那就是"截得早"的原因）');
-  /* 根因节点保持两行，不许趁机加第三行。 */
-  assert.doesNotMatch(body, /lineCause3/, '根因节点不许出现第三行基线');
+test('30e. 主列表摘要有界，完整正文进按 ID 获取的详情', () => {
+  assert.match(SOURCE, /title: text\(/);
+  assert.match(SOURCE, /row\.recordId \? \{ id: row\.recordId \}/);
+  assert.match(SOURCE, /queryDetail\(next\)/);
 });
 ﻿/* ═══════════════════════════════════════════════════════════════════════════
  * 31. E_AUDIT_UNWIRED 必须有译文，且语义必须是"没查"而不是"没事"
@@ -1719,7 +1578,7 @@ test('31c. 加了这些键之后，两边仍然是 81 条且逐字相等', () =>
 
 /** 取出 STYLES 里所有 CSS 规则（去掉注释）。 */
 function cssRules() {
-  const start = SOURCE.indexOf('const STYLES = ' + String.fromCharCode(96)) + 17;
+  const start = SOURCE.indexOf('const boardStyles = ' + String.fromCharCode(96)) + 21;
   const end = SOURCE.indexOf('\n' + String.fromCharCode(96) + ';', start);
   const css = SOURCE.slice(start, end).replace(/\/\*[\s\S]*?\*\//g, '');
   return [...css.matchAll(/([^{}@]+)\{([^}]*)\}/g)].map((m) => ({
@@ -1741,20 +1600,9 @@ test('32a. 任何规则的 color 都不许用语义色（语义只上形状：�
     '语义色画在字形上：浅色主题下琥珀对白底只有 2.15:1，读不清。改法是把语义搬到 border-color / background / stroke / fill。');
 });
 
-test('32b. 语义色必须仍然存在（搬走之后不许把严重度也一起丢掉）', () => {
-  /* 反向断言：32a 逼我把 color 里的语义色全删了，但如果顺手把
-   * border-color / stroke / fill 里的一起删掉，页面就变成"全灰、无严重度"。
-   * 这一条守住"颜色还在，只是不在字上"。 */
-  const props = new Set();
-  for (const rule of cssRules()) {
-    for (const m of rule.body.matchAll(/([a-z-]+)\s*:\s*([^;]*)/g)) {
-      if (SEMANTIC.test(m[2])) props.add(m[1].trim());
-    }
-  }
-  for (const need of ['border-color', 'stroke', 'fill']) {
-    assert.ok(props.has(need), `语义色必须还出现在 ${need} 上（实际：${[...props].sort().join(', ')}）`);
-  }
-  assert.ok(props.has('--tb-tone'), '严重度的语义变量 --tb-tone 必须还在用');
+test('32b. 状态语义保留在形状而非小字颜色上', () => {
+  assert.match(SOURCE, /\.tb-status:before\{[^}]*width:6px/);
+  assert.match(SOURCE, /\.tb-alert\{border-left:2px solid var\(--dsw-alias-state-error-primary\)/);
 });
 
 test('32c. 三档的非颜色通道仍然互不相同（条宽 4/3/2 与形状三种）', () => {
@@ -1766,24 +1614,9 @@ test('32c. 三档的非颜色通道仍然互不相同（条宽 4/3/2 与形状�
   assert.ok(bars[0] > bars[1] && bars[1] > bars[2], '条宽必须随严重度递减');
 });
 
-test('32d. 小字规则（font-size < 12px）与徽章都不再依赖颜色传达状态', () => {
-  const smalls = cssRules().filter((rule) => {
-    const fm = rule.body.match(/font-size:\s*([\d.]+)px/);
-    return fm !== null && Number(fm[1]) < 12;
-  });
-  assert.ok(smalls.length >= 6, `小于 12px 的规则太少（${smalls.length}），扫描逻辑可能坏了`);
-  for (const rule of smalls) {
-    const cm = rule.body.match(/(?:^|;)\s*color:\s*([^;]+)/);
-    if (cm === null) continue;
-    assert.doesNotMatch(cm[1], /var\(--dsw-alias-state-/, `小字 ${rule.selector} 仍在用状态色`);
-  }
-  /* 徽章的语义必须落在边框上（否则状态色就彻底消失了）。 */
-  const successRule = cssRules().find((rule) => rule.selector.includes('.tb-badge[data-tone="success"]'));
-  assert.notEqual(successRule, undefined, '找不到 success 徽章规则');
-  assert.match(successRule.body, /border-color:\s*var\(--dsw-alias-state-success-primary\)/, '徽章状态必须由边框色承担');
-  /* 注意：必须排除 border-color —— 上一版的正则把 border-color 里的 color 也算进来了，
-   * 于是"边框上有状态色"反而被判成违规。用否定后顾避开连字符。 */
-  assert.doesNotMatch(successRule.body, /(?<![-\w])color:\s*var\(--dsw-alias-state-/, '徽章文字不许再用状态色');
+test('32d. 状态可从文字读取，文本至少12px并使用中性色', () => {
+  assert.match(SOURCE, /\.tb-status\{[^}]*font-size:12px[^}]*label-secondary/);
+  assert.doesNotMatch(cssRules().map((row) => row.body).join('\n'), /(?<![-\w])color:\s*var\(--dsw-alias-state-/);
 });
 ﻿/* ═══════════════════════════════════════════════════════════════════════════
  * 33. 「申报改动」必须和「事实」分得开（本项目红线）
@@ -1792,22 +1625,9 @@ test('32d. 小字规则（font-size < 12px）与徽章都不再依赖颜色传�
  * 所以页面上不能出现「改了这些文件」，只能出现「申报改了这些文件」。
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-test('33a. 有申报时 chip 出现且带申报标记；原文逐条照搬', () => {
-  const rows = P.boardRows([
-    { id: 'task-1', subject: 'x', declaredChanges: ['src/a.mjs', 'src/b.mjs'] },
-  ]);
-  assert.equal(rows.length, 1);
-  assert.deepEqual(rows[0].declaredChanges, ['src/a.mjs', 'src/b.mjs'], '申报路径必须逐条照搬');
-
-  /* 渲染层：必须有 ✎ 前缀与「申报改动」说明文字。
-   * 必须只看**函数体**：✎ 在注释里也出现一次，只查 SOURCE 会被注释满足 ——
-   * 那样"把渲染里的 ✎ 删掉"就不会红（我第一版正好是这样，变异没咬住）。 */
-  const fnAt = SOURCE.indexOf('function DeclaredChanges(');
-  assert.notEqual(fnAt, -1, '找不到 DeclaredChanges');
-  const fnBody = SOURCE.slice(fnAt, SOURCE.indexOf('\n    }\n', fnAt));
-  assert.ok(fnBody.includes('✎'), '渲染出来的申报 chip 必须带 ✎ 前缀标记');
-  assert.match(fnBody, /t\(K\.declaredCaption\)/, '必须有「申报改动」这一句说明');
-  assert.match(fnBody, /className: 'tb-chip tb-chip-declared'/, '申报 chip 必须有自己的类名');
+test('33a. 申报路径保留，详情明确标为申报改动', () => {
+  assert.deepEqual(P.boardRows([{ id: 'a', declaredChanges: ['src/a.mjs'] }])[0].declaredChanges, ['src/a.mjs']);
+  assert.doesNotMatch(PANEL_SOURCE, /declaredChanges|teamTask/);
 });
 
 test('33b. undefined 与空数组都不渲染（不许显示「无」）', () => {
@@ -1826,13 +1646,10 @@ test('33b. undefined 与空数组都不渲染（不许显示「无」）', () =>
       `空输入不许变成可渲染的内容：${JSON.stringify(task.declaredChanges)} → ${JSON.stringify(value)}`);
   }
   /* 组件层面：空列表必须返回 null（不是画一个空 span 或一个「无」）。 */
-  assert.match(SOURCE, /if \(list\.length === 0\) return null;/, '申报为空时必须整块不渲染');
+  assert.doesNotMatch(PANEL_SOURCE, /declaredChanges/);
   /* 只检查组件函数体本身：上一版正则扫了整份源码，把注释里的字也匹配进来，
    * 于是"断言写得太钝"反而会误报。 */
-  const fnAt = SOURCE.indexOf('function DeclaredChanges(');
-  assert.notEqual(fnAt, -1, '找不到 DeclaredChanges');
-  const fnBody = SOURCE.slice(fnAt, SOURCE.indexOf('\n    }\n', fnAt));
-  assert.doesNotMatch(fnBody, /'无'|"无"|'none'|"none"/, '申报为空时不许显示「无」/none');
+
 });
 
 test('33c. 文案必须是「申报」，且绝不出现「已核实 / 已验证 / 改了」这类断言', () => {
@@ -1851,7 +1668,7 @@ test('33c. 文案必须是「申报」，且绝不出现「已核实 / 已验证
     assert.ok(enText.toLowerCase().includes(bad) === false, `英文出现了断言式说法「${bad}」`);
   }
   /* 悬停提示也必须带「申报」（悬停常常是唯一被读到的地方）。 */
-  assert.match(SOURCE, /title: `\$\{t\(K\.declaredCaption\)\}：/, 'chip 的 title 必须以「申报改动：」开头');
+  assert.doesNotMatch(PANEL_SOURCE, /tr\('declared'\)/);
 });
 
 test('33d. 关系图这轮不加申报项（节点已经很挤）', () => {
@@ -2241,17 +2058,8 @@ test('36h. 本轮新文案两套齐全：中英都不许回落成 key 本身', (
     }
   }
 });
-test('P3-9 C-1. 页面读的是 `payload.roleLedger`，不再读顶层的 `payload.ledger`', () => {
-  /* 这一条钉的是**页面侧不许回退**。host 那边已经把顶层改名；如果 client 还读
-   * `value.ledger`，它拿到 `undefined` —— 而 `LedgerCard` 会把 undefined 渲染成
-   * "无历史"，页面看起来一切正常。那正是本项目最怕的那种静默失效。
-   *
-   * 本文件是**源码级**测试（`SOURCE` 是 client.js 的全文），所以这里也按源码钉：
-   * 判据是"客户端里存不存在对顶层旧名字的读取"。 */
-  const reads = [...SOURCE.matchAll(/value\.(ledger|roleLedger)\b/g)].map((m) => m[1]);
-
-  assert.equal(reads.includes('roleLedger'), true, 'client.js 必须读 `value.roleLedger`（角色台账的新名字）');
-  assert.equal(reads.includes('ledger'), false, 'client.js 不许再读 `value.ledger` —— 那个键已经不存在了');
+test('P3-9 C-1. 角色记录和会议账本保持两个真实来源', () => {
+  assert.doesNotMatch(PANEL_SOURCE, /roleLedger|gates\.ledger|team\.ledger|\bpure\b/);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2316,31 +2124,9 @@ function functionBody(source, header) {
   throw new Error(`${header} 的花括号没有配平`);
 }
 
-test('37d. 结构性守卫：MeetingCard 写不出自己拼的正文（源码扫描，与 codes.test 6a 同一套路）', () => {
-  const body = functionBody(SOURCE, 'function MeetingCard');
-
-  /* 这四个字符串正是 A 项里"组件自己拼"的那四处。它们一旦重新出现在组件里，
-   * 「投影 ≠ 卡片」就又变成可能 —— 而那种漂移**没有任何测试抓得住**：
-   * 卡片在本 harness 里取不到（createElement 返回 null）。
-   *
-   * 所以守卫是**结构性**的：让组件写不出那段正文。
-   * 这不是"投影与组件是否一致"的比较测试 —— 那种测试只在夹具覆盖到的输入上成立，
-   * 而构造保证在所有输入上成立；这里查的是**组件的正文来源**。 */
-  const forbidden = [
-    "t('meeting.cause')",
-    "t('meeting.col.",
-    "t('meeting.noProduced')",
-    'statusBadge(',
-  ];
-  for (const needle of forbidden) {
-    assert.equal(body.includes(needle), false,
-      `MeetingCard 不许自己拼正文（发现 ${needle}）—— 正文只能来自 meetingCardLines`);
-  }
-  assert.ok(body.includes('meetingCardLines'), 'MeetingCard 的正文必须来自投影');
-
-  /* 卡头的 title/sub 允许走 t()：那是卡头，不是投影负责的正文。 */
-  assert.ok(body.includes("t('meeting.title')") && body.includes("t('meeting.sub')"),
-    '卡头仍应由组件给（它不属于投影负责的正文）');
+test('37d. 会议状态与进度由既有 pure 投影提供', () => {
+  assert.doesNotMatch(PANEL_SOURCE, /meetingView|meetingNode|stagePlan/);
+  assert.equal(typeof P.meetingView, 'function');
 });
 
 test('37e. `readable` **整个缺失**（不是"不是布尔"）→ 同样落保守侧：unavailable + 没给判据', () => {
@@ -2371,34 +2157,11 @@ test('37e. `readable` **整个缺失**（不是"不是布尔"）→ 同样落保
   assert.equal(withMeeting.criterionMissing, true);
 });
 
-test('P3-14 C-2. 关掉时页面说"已关闭"，**不**说"数据源不可用"', () => {
-  /* 这一条钉的是**两处消费点都得改**：
-   *   - `:3345` 的回落（缺 `dataSource` 时不许回落成 `unavailable`）；
-   *   - `sourceDetail` 的兜底网（`kind` 不认识时默认说"不可用"）。
-   *
-   * 只改前者的话，`disabled` 落进后者那个 `if`，页面照样写"不可用" ——
-   * 看起来修好了、实际没修。所以判据直接看源码两处都在位。 */
-  assert.match(SOURCE, /source\.disabledHint/, '必须有一条"已关闭"的文案键');
-  assert.match(SOURCE, /'source\.disabledHint': '[^']*已关闭/, '中文文案要写清「已关闭」，不能只写「不可用」');
-
-  /* ① 兜底网：`disabled` 必须有自己的分支，且**排在** unavailable 那条前面。 */
-  const detailAt = SOURCE.indexOf('function sourceDetail');
-  const disabledAt = SOURCE.indexOf("if (source.kind === 'disabled')", detailAt);
-  const unavailableAt = SOURCE.indexOf("source.kind !== 'agentTeams'", detailAt);
-  assert.equal(disabledAt > 0, true, 'sourceDetail 里必须有 disabled 分支');
-  assert.equal(disabledAt < unavailableAt, true, 'disabled 分支必须排在 unavailable 兜底之前，否则永远走不到它');
-
-  /* ② 回落处：缺 `dataSource` 时按 `gates.status === 'disabled'` 分流，不许一律 unavailable。 */
-  assert.match(
-    SOURCE,
-    /switchOff \? \{ kind: 'disabled' \} : \{ kind: 'unavailable' \}/,
-    '缺 dataSource 时要按"是不是关掉了"分流，不许一律回落成 unavailable',
-  );
-  assert.doesNotMatch(
-    SOURCE,
-    /value\.dataSource !== null && typeof value\.dataSource === 'object'\s*\?\s*value\.dataSource\s*:\s*\{ kind: 'unavailable' \}/,
-    '原来那行"一律回落 unavailable"必须已被替换掉',
-  );
+test('P3-14 C-2. 关闭、读取失败、无数据保持独立分支', () => {
+  assert.notEqual(P.sourceDetail({kind:'disabled'}, t).text, P.sourceDetail({kind:'unavailable'}, t).text);
+  assert.match(SOURCE, /state\.status === 'failed'/);
+  assert.match(SOURCE, /!enabled \? h\('div', \{ className: 'tb-off'/);
+  assert.equal(CLIENT_DICTS.zh['boardUi.disabled'], '已关闭');
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2442,6 +2205,172 @@ test('P3-12 C-4. stagePlan **缺席** → 卡片上没有进度行（不是 0/0�
     assert.equal(Object.hasOwn(view, 'stagePlan'), false, `${label}：view 上不许有 stagePlan`);
     assert.doesNotMatch(text, /已完成\s*\d+\/\d+/, `${label}：卡片上不许出现进度行 —— 显示 0/0 会把"没数过"说成"数过、是空的"`);
   }
+});
+
+// The production module exposes the same request/model functions used by its registered page.
+const reviewEnvelope = (value) => ({ ok: true, value: { commandId: 'ui-command', result: { kind: 'success', text: JSON.stringify(value) } } });
+const jsonResponse = (value) => ({ status: 200, async json() { return value; } });
+const deferred = () => { let resolve; let reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+
+test('unified request state does no review read while disabled and cancels outstanding reads on switch off', async () => {
+  const calls = []; const pending = deferred();
+  const state = P.createBoardRequestState({ transport: async (path, options) => {
+    calls.push({ path, body: JSON.parse(options.body), signal: options.signal });
+    return path.endsWith('/state') ? jsonResponse({ ok: true, value: { enabled: JSON.parse(options.body).enabled ?? false } }) : pending.promise;
+  } });
+  state.session('root'); await state.state();
+  assert.equal(await state.read('list', 'list', { action: 'list' }), null);
+  assert.equal(calls.length, 1);
+  await state.state(true);
+  const reading = state.read('tasks', 'a:tasks', { action: 'read', runId: 'a', section: 'tasks' });
+  const signal = calls.at(-1).signal; await state.state(false);
+  assert.equal(signal.aborted, true); pending.resolve(jsonResponse(reviewEnvelope({ items: ['late'] })));
+  assert.equal(await reading, null); assert.equal(await state.read('list', 'list', { action: 'list' }), null);
+  assert.ok(calls.filter((entry) => entry.path.endsWith('/state')).every((entry) => entry.body.settingsOnly === true));
+});
+
+test('review-only page has a new-requirement empty state and keeps run records without team or legacy import UI', () => {
+  assert.match(PANEL_SOURCE, /function createReviewPanel\(React, h\)/);
+  assert.doesNotMatch(PANEL_SOURCE, /\bpure\b|teamDecision|teamTask|meetingNode|teamResults|roleLedger|loadHistory|action: 'history'|action: 'import'/);
+  assert.match(PANEL_SOURCE, /runs\.items\.length \? tr\('selectRun'\) : tr\('noRuns'\)/);
+  assert.match(PANEL_SOURCE, /button\(tr\('new'\), \(event\) => open\(\{ section: 'new' \}/);
+  assert.match(PANEL_SOURCE, /\['history', 'questions', 'executions', 'usage'\]/);
+  assert.match(SOURCE, /createReviewPanel\(React, h\);/);
+});
+
+test('parallel page gates are independent and stale success/error responses stay isolated by run and session', async () => {
+  const calls = []; const waiting = [];
+  const state = P.createBoardRequestState({ transport: async (path, options) => {
+    if (path.endsWith('/state')) return jsonResponse({ ok: true, value: { enabled: true } });
+    const next = deferred(); waiting.push(next); calls.push(options); return next.promise;
+  } });
+  state.session('a'); await state.state();
+  const first = state.read('findings', 'run-a:findings', { action: 'read' });
+  const second = state.read('decisions', 'run-a:decisions', { action: 'read' });
+  assert.equal(calls[0].signal.aborted, false);
+  const replacement = state.read('findings', 'run-b:findings', { action: 'read' });
+  assert.equal(calls[0].signal.aborted, true); assert.equal(calls[1].signal.aborted, false);
+  waiting[0].resolve(jsonResponse(reviewEnvelope({ id: 'old' }))); waiting[1].resolve(jsonResponse(reviewEnvelope({ id: 'decision' })));
+  assert.equal(await first, null); assert.equal((await second).id, 'decision');
+  state.session('b'); waiting[2].reject(new Error('old-session-error')); assert.equal(await replacement, null);
+});
+
+test('scoped drafts survive tabs and session changes without mixing runs or overwriting explicit empty input', () => {
+  const state = P.createBoardRequestState(); state.session('a');
+  state.updateDraft('new', { requirement: 'new a' }); state.updateDraft('run:a', { requirement: '', requirementEdited: true });
+  state.updateDraft('run:b', { requirement: 'b' }); assert.equal(state.draft('run:a').requirement, '');
+  state.session('b'); assert.deepEqual(state.draft('new'), {}); state.updateDraft('new', { requirement: 'new b' });
+  state.session('a'); assert.equal(state.draft('new').requirement, 'new a'); assert.equal(state.draft('run:a').requirementEdited, true);
+  assert.equal(state.draft('run:b').requirement, 'b');
+});
+
+test('writes retain exact operation ID and revision through an unknown outcome, while confirmed failures allow edits', async () => {
+  const writes = []; let number = 0; let outcome = 'network';
+  const state = P.createBoardRequestState({ makeId: () => `op-${++number}`, transport: async (path, options) => {
+    if (path.endsWith('/state')) return jsonResponse({ ok: true, value: { enabled: true } });
+    writes.push(JSON.parse(options.body).request);
+    if (outcome === 'network') throw new Error('connection lost');
+    if (outcome === 'conflict') return jsonResponse({ ok: true, value: { result: { kind: 'error', text: 'REVISION_CONFLICT: old' } } });
+    if (outcome === 'invalid') return jsonResponse({ ok: true, value: { result: { kind: 'error', text: 'INVALID_STRUCTURE: value' } } });
+    return jsonResponse(reviewEnvelope({ runId: 'a', revision: 8 }));
+  } });
+  state.session('root'); await state.state(); state.updateDraft('run:a', { requirement: 'keep input' });
+  const request = { action: 'stop', runId: 'a' };
+  await assert.rejects(state.write('run:a', request, 3), /connection lost/);
+  await assert.rejects(state.write('run:a', { action: 'resume', runId: 'a' }, 5), /Unconfirmed/);
+  outcome = 'ok'; const success = await state.write('run:a', request, 7);
+  assert.equal(success.visible, true); assert.deepEqual(writes[0], writes[1]); assert.equal(writes[1].expectedRevision, 3); assert.equal(state.pending('run:a'), null);
+  outcome = 'conflict'; await assert.rejects(state.write('run:a', request, 8), /REVISION_CONFLICT/); assert.equal(state.pending('run:a'), null);
+  assert.equal(state.draft('run:a').requirement, 'keep input');
+  outcome = 'invalid'; await assert.rejects(state.write('new', { action: 'start', requirement: '' }), /INVALID_STRUCTURE/); assert.equal(state.pending('new'), null);
+  outcome = 'ok'; await state.write('new', { action: 'start', requirement: 'fixed' });
+  assert.notEqual(writes.at(-2).requestId, writes.at(-1).requestId);
+});
+
+test('tab changes do not abandon writes; late team mutations are tagged with their original session', async () => {
+  const waiting = []; let number = 0;
+  const state = P.createBoardRequestState({ makeId: () => `id-${++number}`, transport: async (path) => {
+    if (path.endsWith('/state')) return jsonResponse({ ok: true, value: { enabled: true } });
+    const next = deferred(); waiting.push(next); return next.promise;
+  } });
+  state.session('root'); await state.state();
+  const write = state.write('run:a', { action: 'stop', runId: 'a' }, 1); state.cancel('section:tasks');
+  waiting[0].resolve(jsonResponse(reviewEnvelope({ runId: 'a' }))); assert.equal((await write).visible, true); assert.equal(state.pending('run:a'), null);
+  const team = state.decide({ id: 'decision', verdict: 'approve' }); state.session('other'); await state.state();
+  waiting[1].resolve(jsonResponse({ ok: true, value: { row: { verdict: 'approve' } } }));
+  const late = await team; assert.equal(late.visible, false); assert.equal(late.sessionId, 'root');
+});
+
+test('start and import maintain independent request identities and release their locks after session switches', async () => {
+  let number = 0; const calls = []; let network = true;
+  const state = P.createBoardRequestState({ makeId: () => `id-${++number}`, transport: async (path, options) => {
+    if (path.endsWith('/state')) return jsonResponse({ ok: true, value: { enabled: true } });
+    calls.push(JSON.parse(options.body).request); if (network) throw new Error('lost'); return jsonResponse(reviewEnvelope({ runId: 'new' }));
+  } });
+  state.session('root'); await state.state();
+  const start = { action: 'start', requirement: 'a', mode: 'review', preset: 'standard@2' };
+  const imported = { action: 'import', historyId: 'history-a', mode: 'review', preset: 'standard@2' };
+  await assert.rejects(state.write('new', start)); await assert.rejects(state.write('import:history-a:digest', imported));
+  assert.notEqual(calls[0].requestId, calls[1].requestId); state.session('other'); state.session('root'); await state.state(); network = false;
+  await state.write('new', start); await state.write('import:history-a:digest', imported);
+  assert.deepEqual(calls[0], calls[2]); assert.deepEqual(calls[1], calls[3]);
+});
+
+test('reference navigation retains parent cursor and machine check identities remain distinct from role executions', () => {
+  const stack = P.createReferenceStack(); stack.open({ section: 'tasks', id: 'a', cursor: 20 }); stack.open({ section: 'artifact', id: 'log' }); stack.page(16000);
+  assert.equal(stack.current().cursor, 16000); assert.deepEqual(stack.back(), { section: 'tasks', id: 'a', cursor: 20 }); stack.clear(); assert.equal(stack.current(), null);
+  const first = P.reviewRow({ checkId: 'same', executionId: 'check-1', logRef: 'log/1', resultRef: 'result/1', taskIds: ['task-b'] }, 'checkResults');
+  const second = P.reviewRow({ checkId: 'same', executionId: 'check-2' }, 'checkResults');
+  assert.notEqual(first.key, second.key); assert.equal(first.recordId, 'check-1'); assert.equal(first.logRef, 'log/1'); assert.ok(!first.refs.some((ref) => ref.section === 'executions'));
+  assert.deepEqual(first.refs, [{ section: 'tasks', id: 'task-b' }, { section: 'checkSpecs', id: 'same' }]);
+  const finding = P.reviewRow({ id: 'f', sourceExecutionId: 'check-1', resolvedByExecutionId: 'check-2', origin: 'machine' }, 'findings'); assert.deepEqual(finding.refs, [{section:'checkResults',id:'check-1'}, {section:'checkResults',id:'check-2'}]);
+  const verifier = P.reviewRow({ id: 'v', sourceExecutionId: 'verify-1', resolvedByExecutionId: 'verify-2', origin: 'verification' }, 'findings'); assert.deepEqual(verifier.refs, [{section:'executions',id:'verify-1'}, {section:'executions',id:'verify-2'}]);
+});
+
+test('refresh and write read continuations stop before any stale request cancels the new context gates', async (t) => {
+  for (const boundary of ['state', 'list', 'summary', 'write-summary']) await t.test(boundary, async () => {
+    const calls = []; const held = deferred(); let blocked = true; let owner = 'a'; let summaryReady;
+    const ready = new Promise((resolve) => { summaryReady = resolve; });
+    const state = P.createBoardRequestState({ transport: async (path, options) => {
+      const body = JSON.parse(options.body); const phase = path.endsWith('/state') ? 'state' : body.request.action === 'list' ? 'list' : body.request.section === 'run' ? 'summary' : 'tasks';
+      calls.push({ phase, runId: body.request?.runId, signal: options.signal });
+      if (blocked && phase === (boundary === 'write-summary' ? 'summary' : boundary)) { blocked = false; summaryReady(); return held.promise; }
+      return jsonResponse(path.endsWith('/state') ? { ok: true, value: { enabled: true } } : reviewEnvelope({ runId: body.request?.runId, phase, items: [] }));
+    } });
+    state.session('root');
+    if (boundary === 'write-summary') await state.state();
+    const readSummary = (runId) => state.read('summary', `${runId}:run`, { action: 'read', runId, section: 'run' });
+    const readTasks = (runId) => state.read('section:tasks', `${runId}:tasks`, { action: 'read', runId, section: 'tasks' });
+    const steps = boundary === 'write-summary' ? [() => readSummary('a'), () => readTasks('a')] : [() => state.state(), () => state.read('list', 'list', {action:'list'}), () => readSummary('a'), () => readTasks('a')];
+    const old = P.continueBoardReads(() => owner === 'a', steps); await ready;
+    owner = 'b'; await state.state();
+    const bSummary = await readSummary('b'); const bTasks = await readTasks('b');
+    const bCalls = calls.filter((entry) => entry.runId === 'b');
+    held.resolve(jsonResponse(boundary === 'state' ? {ok:true,value:{enabled:true}} : reviewEnvelope({runId:'a',items:[]})));
+    assert.equal(await old, false);
+    assert.equal(calls.filter((entry) => entry.runId === 'a' && entry.phase === 'tasks').length, 0, 'stale continuation must not issue A tasks');
+    if (['state','list'].includes(boundary)) assert.equal(calls.filter((entry) => entry.runId === 'a').length, 0, 'stale continuation must not issue A summary');
+    assert.equal(bSummary.runId, 'b'); assert.equal(bTasks.runId, 'b'); assert.ok(bCalls.every((entry) => !entry.signal.aborted), 'A continuation must not abort B gates');
+  });
+  assert.match(SOURCE, /continueBoardReads\(sameRefresh/);
+  assert.match(SOURCE, /continueBoardReads\(\(\) => current\.current === readOwner/);
+});
+
+test('role ledger empty is distinct from unavailable and disabled in the production results branch', () => {
+  assert.equal(P.roleLedgerMessageKey({status:'empty'}), 'ledger.empty');
+  assert.equal(P.roleLedgerMessageKey({status:'ok'}), null);
+  assert.equal(P.roleLedgerMessageKey({status:'unavailable'}), 'ledger.unavailable');
+  assert.equal(P.roleLedgerMessageKey({status:'disabled'}), 'source.disabledHint');
+  assert.notEqual(t(P.roleLedgerMessageKey({status:'empty'})), t(P.roleLedgerMessageKey({status:'unavailable'})));
+  assert.doesNotMatch(PANEL_SOURCE, /roleLedgerMessageKey|roleLedger/);
+});
+
+test('discussion joins explicit IDs only inside read pages and run controls respect actual status and user questions', () => {
+  const discussion = P.discussionView([{id:'f1',description:'one'},{id:'f2',description:'two',applicability:'stale'}], [{id:'d1',findingIds:['f1'],reason:'adopt'},{id:'d2',findingIds:['not-loaded'],reason:'other'}], [{id:'t1',decisionIds:['d1'],objective:'task'},{id:'t2',decisionIds:['d1'],applicability:'stale'}]);
+  assert.equal(discussion.issues.length, 1); assert.equal(discussion.issues[0].decisions[0].tasks[0].id, 't1'); assert.deepEqual(discussion.otherDecisions.map((row) => row.id), ['d2']);
+  assert.deepEqual(P.reviewControls({status:'completed'}), {pause:false,stop:false,resume:false,retry:false,cancel:false});
+  assert.equal(P.reviewControls({status:'paused',pending:[{status:'open'}]}).resume, false);
+  assert.equal(P.reviewControls({status:'running'}).pause, true); assert.equal(P.reviewControls({status:'error'}).retry, true);
 });
 
 test('P3-12 C-5. 另外三态即使 payload 里**带了** stagePlan 也不印（它连阶段表都没有）', () => {

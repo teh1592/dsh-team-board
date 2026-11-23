@@ -45,7 +45,7 @@ try {
   const registrations = []; const dictionaries = [];
   module.apply({ effect: (apply) => apply(), locale: { register(namespace, values) { dictionaries.push({ namespace, values }); return () => {}; }, bind: () => (key) => key }, slots: { inject(name, apply) { assert.equal(name, 'conversation.view'); return apply(); }, register(options, component) { registrations.push({ options, component }); return () => {}; } } });
   assert.equal(registrations.length, 1); assert.equal(registrations[0].options.id, 'team-board'); assert.equal(registrations[0].options.order, 40);
-  const mounted = registrations[0].component({ sessionId: 'page-root' }); assert.equal(mounted.children.length, 2); assert.equal(mounted.children[0].type.name, 'ReviewPanel'); assert.equal(mounted.children[1].type.name, 'LedgerView');
-  assert.ok(dictionaries[0].values.zh['review.title']); assert.ok(dictionaries[0].values.en['review.title']);
-  console.log('CLIENT_ARTIFACT actual loader, existing Slot options, review plus legacy board, localized resources: PASS (live Client and visual checks remain unverified)');
+  const mounted = registrations[0].component({ sessionId: 'page-root' }); assert.equal(mounted.type.name, 'UnifiedBoard'); assert.equal(mounted.props.sessionId, 'page-root'); assert.equal(mounted.props.key, 'page-root'); assert.equal(mounted.children.length, 0);
+  assert.ok(dictionaries[0].values.zh['boardUi.title']); assert.ok(dictionaries[0].values.en['boardUi.title']);
+  console.log('CLIENT_ARTIFACT actual loader, existing Slot options, single unified session page, localized resources: PASS (live Client and visual checks remain unverified)');
 } finally { await service?.dispose(); await ctx.fiber.dispose(); await rm(rootDirectory, { recursive: true, force: true }); }

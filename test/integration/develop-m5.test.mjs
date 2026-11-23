@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ReviewService } from '../../host/review-service.mjs';
 import { DshProjectFiles } from '../../host/dsh/project-files.mjs';
+import { executionInputs } from '../../src/review/inputs.mjs';
 import { automaticAgents, testStore, deferred } from './helpers.mjs';
-async function fixture(t, { machineFailure = false, permanentFailure = false } = {}) {
+async function fixture(t, { machineFailure = false, permanentFailure = false, questions = false } = {}) {
   const disk = await testStore();
   const checks = [{ id: 'unit', kind: 'test', parser: 'node-test', argv: ['node', '--test'], inputs: ['src/api/**'], outputs: [] }];
   await disk.fs.writeText(await disk.fs.resolve('.review/config.json'), JSON.stringify({ schemaVersion: 1, checks }));
-  const agents = automaticAgents(); const original = agents.start; let builds = 0; let verifies = 0; let commands = 0;
+  const agents = automaticAgents({ questions }); const original = agents.start; let builds = 0; let verifies = 0; let commands = 0;
   agents.start = async (spec) => {
     if (!['build', 'verify'].includes(spec.stageId)) return original(spec);
     agents.calls.push(spec);
@@ -130,6 +131,134 @@ test('impact revision reuses review and decision while rebuilding only affected 
   assert.match(report, /1:D-1/);
   assert.match(report, /task-1-1/);
   assert.match(report, /复用自需求版本 1/);
+});
+for (const mode of ['review', 'develop']) test(`decision impact revision reruns decide in ${mode} mode and retains prior answers as history`, async (t) => {
+  const { service, agents, counters } = await fixture(t, { machineFailure: true, questions: true });
+  service.commandRunner.run = async (spec) => ({ checkId: spec.id, outcome: 'passed', exitCode: 0, stdout: '# tests 1\n# pass 1\n# fail 0', stderr: '' });
+  const start = agents.start;
+  agents.start = async (spec) => {
+    const handle = await start(spec); const received = await handle.result; const envelope = structuredClone(received.envelope);
+    if (spec.stageId === 'intake') envelope.result.questions = [{ id: 'unrelated-choice', question: 'Keep documentation format?', findingIds: [], options: [{ id: 'keep', label: 'Keep', description: 'Retain format' }, { id: 'change', label: 'Change', description: 'Change format' }] }];
+    if (spec.stageId !== 'decide') return { ...handle, result: Promise.resolve({ raw: { structured: envelope, output: [], stopReason: 'completed' }, envelope }) };
+    if (!spec.inputs.questions.some((question) => question.id === 'Q-1' && question.status === 'answered')) envelope.result = { summary: spec.inputs.requirement, decisions: [{ id: 'support', findingIds: spec.inputs.findings.map((entry) => entry.id), choice: 'dismiss', reason: 'Review findings are addressed separately from the user choice', checks: [] }], questions: [{ id: 'Q-1', question: 'Choose timeout behavior', findingIds: [], options: [{ id: 'retry', label: 'Retry', description: 'One retry' }, { id: 'stop', label: 'Stop', description: 'Return error' }] }] };
+    for (const decision of envelope.result.decisions.filter((entry) => entry.choice === 'adopt')) {
+      decision.reason = spec.inputs.requirement; decision.implementation.objective = spec.inputs.requirement;
+      decision.implementation.acceptance = [spec.inputs.requirement]; decision.checks = [`Verify ${spec.inputs.requirement}`];
+    }
+    envelope.result.summary = spec.inputs.requirement;
+    if (spec.inputs.requirementRevision === 1 && envelope.result.decisions.length && !spec.inputs.decisions.some((entry) => entry.id === '1:unchanged')) envelope.result.decisions.push({ id: 'unchanged', findingIds: [], choice: 'dismiss', reason: 'Retain the existing documentation format', checks: [] });
+    return { ...handle, result: Promise.resolve({ raw: { structured: envelope, output: [], stopReason: 'completed' }, envelope }) };
+  };
+  const { runId } = await service.start({ requestId: `decision-impact-${mode}`, requirement: 'Timeout is 43', mode }, { sessionId: 'root' }); await service.wait(runId);
+  await service.decide(runId, 'unrelated-choice', 'keep', { kind: 'user', sessionId: 'root' }, 'unrelated-choice'); await service.wait(runId);
+  await service.decide(runId, 'Q-1', 'retry', { kind: 'user', sessionId: 'root' }, 'initial-choice'); await service.wait(runId);
+  await service.mutate(runId, 'dependent-task-fixture', (run) => {
+    const source = run.decisions.find((entry) => entry.choice === 'adopt').sourceExecutionId;
+    run.decisions.push({ id: '1:dependent', findingIds: [], choice: 'adopt', reason: 'Old downstream decision', owner: source, sourceExecutionId: source, revision: run.decisionRevision, affectedTaskIds: ['old-dependent'], requirementRevision: 1, checks: ['Old downstream acceptance'] });
+    run.tasks.push({ id: 'old-dependent', decisionIds: ['1:dependent'], objective: 'Old downstream objective', acceptance: ['Old downstream acceptance'], writeScopes: ['src/api/'], dependsOn: [run.tasks[0].id], workStatus: 'completed', requirementRevision: 1, applicability: 'current' });
+    run.questions.push({ id: 'old-open', question: 'Old unresolved wording', findingIds: [], options: [{ id: 'yes', label: 'Yes', description: 'Old' }, { id: 'no', label: 'No', description: 'Old' }], sourceExecutionId: source, requirementRevision: 1, status: 'open' });
+  });
+  const before = await service.required(runId); assert.equal(before.status, 'completed', before.diagnostic);
+  const oldDecision = before.decisions.find((entry) => entry.choice === 'adopt'); const oldTask = before.tasks[0]; const oldReport = await service.store.readArtifact(runId, before.reportRef);
+  const calls = agents.calls.length; const changedRequirement = 'Timeout is 43 and cancellation restores the previous filter';
+  await service.revise(runId, { operationId: 'decision-impact', expectedRevision: before.revision, requirement: changedRequirement, reason: 'Cancellation behavior changed', impact: { decisionIds: [oldDecision.id], review: 'reuse' } }); await service.wait(runId);
+  let after = await service.required(runId);
+  assert.equal(after.status, 'waiting_user', after.diagnostic); assert.equal(after.phase, 'decide');
+  assert.deepEqual(agents.calls.slice(calls).map((entry) => entry.stageId), ['decide']);
+  assert.equal(after.decisions.find((entry) => entry.id === oldDecision.id).applicability, 'stale');
+  assert.equal(after.tasks.find((entry) => entry.id === oldTask.id).applicability, 'stale');
+  assert.equal(after.tasks.find((entry) => entry.id === 'old-dependent').applicability, 'stale'); assert.equal(after.decisions.find((entry) => entry.id === '1:dependent').applicability, 'stale');
+  assert.equal(after.questions.find((entry) => entry.id === 'old-open').status, 'superseded');
+  const timeoutChoice = before.decisions.find((entry) => entry.id.includes('user-Q-1-')); const unrelatedChoice = before.decisions.find((entry) => entry.id.includes('user-unrelated-choice-'));
+  assert.equal(after.decisions.find((entry) => entry.id === timeoutChoice.id).applicability, 'stale'); assert.equal(after.decisions.find((entry) => entry.id === unrelatedChoice.id).reusedForRevision, 2);
+  assert.equal(after.decisions.find((entry) => entry.id === '1:unchanged').reusedForRevision, 2);
+  const oldAnswer = after.questions.find((entry) => entry.id === 'Q-1' && entry.requirementRevision === 1); assert.equal(oldAnswer.answer, 'retry'); assert.equal(oldAnswer.applicability, 'stale');
+  const pending = after.questions.find((entry) => entry.requirementRevision === 2 && entry.status === 'open'); assert.equal(pending.id, 'Q-1');
+  assert.equal((await service.status(runId)).pending.length, 1);
+  const revisedDecide = agents.calls.at(-1); assert.ok(revisedDecide.inputs.decisions.some((entry) => entry.id === '1:unchanged')); assert.equal(revisedDecide.inputs.decisions.some((entry) => entry.id === oldDecision.id || entry.id === timeoutChoice.id), false); assert.ok(revisedDecide.inputs.decisions.some((entry) => entry.id === unrelatedChoice.id));
+  assert.equal(revisedDecide.inputs.requirement, changedRequirement); assert.deepEqual(revisedDecide.inputs.revisionImpact.decisionIds, [oldDecision.id]); assert.equal(revisedDecide.inputs.reviews.length, 2);
+  const prior = revisedDecide.inputs.revisionToUpdate; assert.equal(prior.fromRevision, 1); assert.ok(prior.decisions.some((entry) => entry.id === oldDecision.id && entry.reason === oldDecision.reason));
+  const dependent = prior.tasks.find((entry) => entry.id === 'old-dependent'); assert.equal(dependent.objective, 'Old downstream objective'); assert.deepEqual(dependent.acceptance, ['Old downstream acceptance']); assert.equal(dependent.applicability, 'stale');
+  assert.equal(revisedDecide.inputs.tasks.some((entry) => entry.id === 'old-dependent'), false);
+  assert.ok(revisedDecide.inputs.previousQuestions.some((entry) => entry.answer === 'retry' && entry.requirementRevision === 1)); assert.equal(revisedDecide.inputs.questions.some((entry) => entry.answer === 'retry' || entry.id === 'old-open'), false);
+  assert.equal(after.reportRef, undefined, 'old report must not be published for the revised requirement'); assert.equal(after.summary, changedRequirement);
+  await service.decide(runId, 'Q-1', 'stop', { kind: 'user', sessionId: 'root' }, 'revised-choice'); await service.wait(runId);
+  after = await service.required(runId); assert.equal(after.status, 'completed', after.diagnostic);
+  const replacement = after.decisions.find((entry) => entry.requirementRevision === 2 && entry.choice === 'adopt'); assert.ok(replacement); assert.equal(replacement.reason, changedRequirement);
+  assert.ok(after.tasks.some((entry) => entry.decisionIds.includes(replacement.id) && entry.objective === changedRequirement && entry.acceptance.includes(changedRequirement)));
+  const report = (await service.inspect(runId, 'report')).content; assert.match(report, new RegExp(changedRequirement)); assert.match(report, /2:D-1/); assert.doesNotMatch(report, /  - 1:D-1：/); assert.doesNotMatch(report, /- task-1-1：/);
+  assert.equal(await service.store.readArtifact(runId, before.reportRef), oldReport);
+  assert.equal(after.questions.filter((entry) => entry.status === 'answered').length, 3);
+  assert.deepEqual(executionInputs(after, 'review', 'architecture').userAnswers.map((entry) => entry.answer), ['keep', 'stop']);
+  assert.ok(before.executions.filter((entry) => ['intake', 'review'].includes(entry.stageId)).every((old) => after.executions.find((entry) => entry.executionId === old.executionId).reusedForRevision === 2));
+  assert.equal(agents.calls.filter((entry) => entry.stageId === 'review').length, 2);
+  if (mode === 'review') assert.deepEqual(counters(), { builds: 0, verifies: 0, commands: 0 });
+  else { const build = agents.calls.filter((entry) => entry.stageId === 'build').at(-1); assert.ok(build.inputs.tasks.some((entry) => entry.decisionIds.includes(replacement.id))); assert.equal(build.inputs.tasks.some((entry) => entry.id === oldTask.id), false); }
+});
+test('decision-only revision with no implementation task accepts a changed dismissal', async (t) => {
+  const { service, agents } = await fixture(t); const start = agents.start;
+  agents.start = async (spec) => {
+    const handle = await start(spec); if (spec.stageId !== 'decide') return handle;
+    const received = await handle.result; const envelope = structuredClone(received.envelope);
+    const ids = spec.inputs.findings.map((entry) => entry.id);
+    envelope.result = { summary: spec.inputs.requirement, decisions: [{ id: 'dismiss', findingIds: ids.slice(0, 1), choice: 'dismiss', reason: spec.inputs.requirement, checks: [] }, ...(spec.inputs.requirementRevision === 1 ? [{ id: 'unchanged', findingIds: ids.slice(1), choice: 'dismiss', reason: 'Independent finding already handled', checks: [] }] : [])], questions: [] };
+    return { ...handle, result: Promise.resolve({ raw: { structured: envelope, output: [], stopReason: 'completed' }, envelope }) };
+  };
+  const { runId } = await service.start({ requestId: 'dismiss-revision', requirement: 'Original dismissal', mode: 'review' }, { sessionId: 'root' }); await service.wait(runId);
+  const before = await service.required(runId); assert.equal(before.tasks.length, 0);
+  await service.revise(runId, { operationId: 'change-dismissal', requirement: 'Reconsider dismissal with current requirement', reason: 'Decision changed', impact: { decisionIds: [before.decisions[0].id], review: 'reuse' } }); await service.wait(runId);
+  const after = await service.required(runId); assert.equal(after.status, 'completed', after.diagnostic); assert.equal(after.decisions[0].applicability, 'stale'); assert.equal(agents.calls.filter((entry) => entry.stageId === 'decide').length, 2);
+  assert.equal(after.decisions.filter((entry) => entry.id === '1:unchanged').length, 1); assert.equal(after.decisions.find((entry) => entry.id === '1:unchanged').reusedForRevision, 2);
+  assert.ok(agents.calls.at(-1).inputs.findings.some((entry) => after.decisions.find((decision) => decision.id === '1:unchanged').findingIds.includes(entry.id)));
+  assert.equal(after.tasks.length, 0); await assert.rejects(service.revise(runId, { operationId: 'old-decision', requirement: 'Invalid old selection', reason: 'Check stale selection', impact: { decisionIds: [before.decisions[0].id], review: 'reuse' } }), { code: 'DECISION_NOT_FOUND' });
+});
+for (const kind of ['path', 'check']) test(`${kind}-only impact revision preserves the decision and independent reviews`, async (t) => {
+  const { service, agents } = await fixture(t, { machineFailure: true });
+  const { runId } = await service.start({ requestId: `local-${kind}`, requirement: 'Timeout is 43', mode: 'develop' }, { sessionId: 'root' }); await service.wait(runId);
+  const before = await service.required(runId); const calls = agents.calls.length;
+  await service.revise(runId, { operationId: `revise-${kind}`, requirement: 'Timeout is 43 with a refreshed check', reason: 'Implementation check only', impact: { ...(kind === 'path' ? { paths: ['src/api/timeout.mjs'] } : { checkIds: ['unit'] }), review: 'reuse' } }); await service.wait(runId);
+  const after = await service.required(runId); assert.equal(after.status, 'completed', after.diagnostic); assert.equal(after.decisions.length, before.decisions.length);
+  assert.ok(agents.calls.slice(calls).every((entry) => ['build', 'verify'].includes(entry.stageId)));
+});
+for (const kind of ['task', 'path', 'check']) test(`local ${kind} revision supersedes the previous rework limit but retains ordinary user questions`, async (t) => {
+  const { service, agents, counters } = await fixture(t, { permanentFailure: true });
+  const { runId } = await service.start({ requestId: `rework-revise-${kind}`, requirement: 'Repair timeout', mode: 'develop' }, { sessionId: 'root' }); await service.wait(runId);
+  const before = await service.required(runId); const limit = before.questions.find((entry) => entry.category === 'rework-limit'); assert.equal(before.status, 'waiting_user'); assert.equal(before.rework.count, 2);
+  const start = agents.start; agents.start = async (spec) => { const handle = await start(spec); if (spec.stageId !== 'verify') return handle; const received = await handle.result; const envelope = structuredClone(received.envelope); envelope.result = { decision: 'accept', summary: 'Repair accepted', findings: [], risks: [], tests: ['Repair checked'], resolvedFindingIds: spec.inputs.pendingVerificationFindingIds }; return { ...handle, result: Promise.resolve({ raw: { structured: envelope, output: [], stopReason: 'completed' }, envelope }) }; };
+  const impact = { ...(kind === 'task' ? { taskIds: [before.tasks[0].id] } : kind === 'path' ? { paths: ['src/api/timeout.mjs'] } : { checkIds: ['unit'] }), review: 'reuse' };
+  const calls = agents.calls.length;
+  await service.revise(runId, { operationId: 'new-rework-budget', requirement: 'Repair timeout with refreshed requirements', reason: 'Restart local implementation', impact }); await service.wait(runId);
+  const after = await service.required(runId); assert.equal(after.status, 'completed', after.diagnostic); assert.equal(after.rework.count, 0);
+  const old = after.questions.find((entry) => entry.id === limit.id); assert.equal(old.applicability, 'stale'); assert.equal(old.status, 'superseded'); assert.equal(old.requirementRevision, 1);
+  assert.ok(agents.calls.slice(calls).every((entry) => ['build', 'verify'].includes(entry.stageId))); assert.ok(counters().verifies > 3);
+  if (kind === 'task') {
+    await service.mutate(runId, 'ordinary-open-choice', (run) => { run.questions.push({ id: 'ordinary-choice', question: 'Choose documentation format', findingIds: [], options: [{ id: 'keep', label: 'Keep', description: 'Keep formatting' }, { id: 'change', label: 'Change', description: 'Change formatting' }], requirementRevision: 2, sourceExecutionId: run.activeExecutions['decide:lead'], status: 'open' }); });
+    await service.revise(runId, { operationId: 'retain-ordinary-choice', requirement: 'Repair timeout and check docs', reason: 'Check update', impact: { checkIds: ['unit'], review: 'reuse' } }); await service.wait(runId);
+    const waiting = await service.required(runId); assert.equal(waiting.status, 'waiting_user'); assert.equal(waiting.questions.find((entry) => entry.id === 'ordinary-choice').status, 'open');
+  }
+});
+for (const completeA of [false, true]) test(`consecutive decision revisions ${completeA ? 'exclude an already replaced' : 'retain an unfinished'} earlier target`, async (t) => {
+  const { service, agents } = await fixture(t); const start = agents.start;
+  const adoption = (id, title) => ({ id, findingIds: [], choice: 'adopt', reason: title, implementation: { objective: title, acceptance: [`Verify ${title}`], writeScopes: ['src/api/'] }, checks: [`Check ${title}`] });
+  agents.start = async (spec) => {
+    const handle = await start(spec); if (spec.stageId !== 'decide') return handle; const received = await handle.result; const envelope = structuredClone(received.envelope);
+    envelope.result = spec.inputs.requirementRevision === 1 ? { summary: 'Original independent decisions', decisions: [{ id: 'support', findingIds: spec.inputs.findings.map((entry) => entry.id), choice: 'dismiss', reason: 'Review findings handled', checks: [] }, adoption('A', 'Original A'), adoption('B', 'Original B')], questions: [] }
+      : spec.inputs.requirementRevision === 2 ? { summary: 'Reconsider A', decisions: completeA ? [adoption('A2', 'Updated A')] : [], questions: completeA ? [] : [{ id: 'choose-A', question: 'Choose updated A', findingIds: [], options: [{ id: 'yes', label: 'Yes', description: 'Update A' }, { id: 'no', label: 'No', description: 'Keep A' }] }] }
+      : { summary: 'Updated A and B', decisions: [...(completeA ? [] : [adoption('A3', 'Updated A')]), adoption('B3', 'Updated B')], questions: [] };
+    return { ...handle, result: Promise.resolve({ raw: { structured: envelope, output: [], stopReason: 'completed' }, envelope }) };
+  };
+  const { runId } = await service.start({ requestId: `consecutive-${completeA}`, requirement: 'Original A and B', mode: 'review' }, { sessionId: 'root' }); await service.wait(runId);
+  const original = await service.required(runId); const oldA = original.tasks.find((entry) => entry.decisionIds.includes('1:A')); const oldB = original.tasks.find((entry) => entry.decisionIds.includes('1:B'));
+  await service.revise(runId, { operationId: 'revise-A', requirement: 'Update A', reason: 'A changed', impact: { decisionIds: ['1:A'], review: 'reuse' } }); await service.wait(runId);
+  assert.equal((await service.required(runId)).status, completeA ? 'completed' : 'waiting_user');
+  await service.revise(runId, { operationId: 'revise-B', requirement: 'Update A and B', reason: 'B changed too', impact: { decisionIds: ['1:B'], review: 'reuse' } }); await service.wait(runId);
+  const input = agents.calls.filter((entry) => entry.stageId === 'decide').at(-1).inputs;
+  const prior = input.revisionToUpdate; assert.equal(prior.tasks.some((entry) => entry.id === oldA.id), !completeA); assert.equal(prior.decisions.some((entry) => entry.id === '1:A'), !completeA);
+  assert.ok(prior.tasks.some((entry) => entry.id === oldB.id && entry.objective === 'Original B' && entry.acceptance.includes('Verify Original B')));
+  if (!completeA) assert.ok(prior.tasks.some((entry) => entry.id === oldA.id && entry.objective === 'Original A' && entry.acceptance.includes('Verify Original A')));
+  assert.equal(input.tasks.some((entry) => entry.id === oldA.id || entry.id === oldB.id), false);
+  const after = await service.required(runId); assert.equal(after.status, 'completed', after.diagnostic); assert.equal(agents.calls.filter((entry) => entry.stageId === 'review').length, 2);
+  assert.equal(executionInputs(after, 'decide', 'lead').revisionToUpdate, undefined, 'handled revision targets must not be requested again');
 });
 test('interrupted build reload inspects actual partial files and retry finishes from retained work', async (t) => {
   const { service, store, fs, agents, projectRoot } = await fixture(t);

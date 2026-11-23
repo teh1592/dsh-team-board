@@ -69,10 +69,10 @@ For build and verify, `resolvedFindingIds` is only for fixed verification findin
 
 ## Page, History, and Usage
 
-The page adds a run area to the existing `conversation.view/team-board/order40`, retaining the legacy task board and user switch. The build script inlines the page and view-model into client.js, using the host's React and theme tokens.
+The page displays review and development runs in `conversation.view/team-board/order40`, with Overview, Discussion, Tasks, and Results tabs. The switch reads only enabled; the page does not query Agent Teams. The build script inlines the page, request state, styles, messages, and view-model into client.js, using the host's React and theme tokens.
 
 The authenticated Fetch route calls the public `commands.execute` after exact root-session and owner checks, using the same ReviewService as model tools. The page uses AbortController and session, run, and section generations to prevent old responses from overwriting a newer view. Buttons are locked during writes, repeated deliveries retain operationId, and revision conflicts preserve drafts.
 
-Page list, detail, and history reads do not call recover/kick. Listing traverses the current directory and projects in session-index, filtering by rootSessionId. Explicitly importing a historical task creates a new run and saves provenance and original source materials; the source task remains read-only.
+Page list, detail, and run-history reads do not call recover/kick. Listing traverses the current directory and projects in session-index, filtering by rootSessionId. Legacy team tools and import code remain in place, but the new page does not call them.
 
 usage aggregates tokens from child sessions' committed assistant/message.data.usage and retains source event sequence numbers; timing and rework counts come from saved state. Missing fields remain null/unknown. See [trial results](practice-results.md) for completeness and comparison limits in actual trials.

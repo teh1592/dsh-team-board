@@ -56,5 +56,12 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release already exists; leave its assets unchanged."
           else
-            gh release create "$RELEASE_TAG" "$ARCHIVE" SHA256SUMS.txt --verify-tag --title "Team Board $RELEASE_TAG" --notes-file docs/releases/0.5.0.md
+            version="${RELEASE_TAG#v}"
+            notes="docs/releases/${version}.md"
+            test -f "$notes"
+            release_args=("$RELEASE_TAG" "$ARCHIVE" SHA256SUMS.txt --verify-tag --title "Team Board $RELEASE_TAG" --notes-file "$notes")
+            if [[ "$version" == *-* ]]; then
+              release_args+=(--prerelease)
+            fi
+            gh release create "${release_args[@]}"
           fi

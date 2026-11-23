@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/review/**/*.mjs", "src/review/**/*.d.ts", "host/dsh/**/*.mjs", "host/review-service.mjs", "host/review-plugin.mjs", "host/develop-controller.mjs"]
+  "include": ["src/review/**/*.mjs", "src/review/**/*.d.ts", "host/dsh/**/*.mjs", "host/review-service.mjs", "host/review-plugin.mjs", "host/develop-controller.mjs", "client/**/*.mjs"]
 }

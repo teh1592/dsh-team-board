@@ -2,7 +2,7 @@
 
 [中文原文](../operations.md) | [English README](../../README.en.md)
 
-Once Team Board's switch is on and the DSH runtime dependencies are ready, the model can use the following five public tools. The new workflow requires subagents and a fresh-context provider; the legacy team task board, meetings, and historical imports additionally require the official Agent Teams components. The two feature switches are configured separately. Read [dependencies and enablement checks](dependencies.md) before installation. See [architecture](architecture.md) for the runtime structure and [compatibility notes](compatibility.md) for the host environment and verification scope.
+Once Team Board's switch is on, the model can use the following five public tools. See [dependencies and setup](dependencies.md) for environment preparation and [architecture](architecture.md) for the runtime structure.
 
 | Tool | Purpose |
 |---|---|
@@ -63,7 +63,7 @@ The model uses review_revise to provide a new requirement, reason, and operation
 {"runId":"run-id","operationId":"revision-2","requirement":"Complete new requirements","reason":"Reason for the change","impact":{"decisionIds":[],"taskIds":["task-1-1"],"checkIds":["node-tests"],"paths":["src/clamp.mjs"],"review":"reuse"}}
 ```
 
-When review is reuse, valid intake, reviews, and decisions are retained; only affected implementation, checks, and independent verification are redone. Tasks depending on an affected task are also redone. When review is rerun, reviews and decisions are regenerated. The program checks that references exist. Old outputs are retained, and reports identify the source version of reused content.
+With review set to reuse, valid intake and independent reviews remain available. Specifying decisionIds reruns the decision stage, marks the affected decisions, tasks, and downstream tasks stale, and generates work for the updated requirements. Revisions limited to taskIds, paths, or checkIds retain the decisions and repeat the affected implementation and checks. Setting review to rerun restarts from intake. Previous questions, answers, decisions, and reports retain their source versions; superseded answers and their decisions no longer serve as current input. Consecutive revisions preserve targets and acceptance conditions that still need updating.
 
 ## Development and Machine Checks
 
@@ -123,16 +123,18 @@ The existing public HTTP route remains available:
 POST /api/team-board/state
 Content-Type: application/json
 
-{"enabled":true,"sessionId":"current-root-session-id"}
+{"enabled":true,"sessionId":"current-root-session-id","settingsOnly":true}
 ```
 
-enabled is saved before the snapshot is generated. sessionId selects the session whose data is read; changing only the switch requires only enabled. Before verification, use the same route to read the original value, and restore it afterward. Requests should use the current GUI's normal authenticated transport. If the host returns an access error, follow its access requirements.
+enabled saves the switch state. The new page always sends settingsOnly:true, which returns only enabled without reading team tasks, members, or role records. Requests use the GUI's authenticated connection.
 
 This route comes from the existing user switch, and review reuses the same setting. New runs do not require writing profile files.
 
 ## Run Page and Structured Interface
 
-The team ledger tab retains the original task board and settings, adding a review and development run area above them. Users can start review/develop, select quick@2/standard@2, pause or resume, revise requirements, answer pending questions, and read role executions, findings, decisions, tasks, checks, reports, and logs with pagination. The page lists runs for the current session and also queries the original projects recorded in the log index after a directory change. Refresh rereads state; read failures show the specific error and preserve input.
+Team Board has Overview, Discussion, Tasks, and Results tabs. The header creates or selects a review/development task and provides the plugin switch and refresh. Overview prioritizes pending choices or current work. Discussion connects findings with decisions, Tasks shows implementation requirements, and Results separates machine checks, independent opinions, and reports. Related records and logs open on demand.
+
+Users can select review/develop and quick@2/standard@2, control runs, revise requirements, and answer questions. The page reads runs for the current session, and the log index locates their original projects after a directory change. Each run's history, questions, outputs, and reports remain available through Activity.
 
 Page operations use the same ReviewService. Authenticated owner requests are submitted to:
 
@@ -154,14 +156,10 @@ The Host establishes identity using connection.admit and the exact live root Age
 | pause / stop / resume / retry / cancel | runId, operationId; optional expectedRevision |
 | revise | runId, operationId, requirement, reason; optional expectedRevision, impact |
 | decide | runId, questionId, optionId, operationId; optional expectedRevision |
-| history | optional historyId, cursor |
-| import | historyId, requestId; optional requirement, preset, mode |
 
 The route returns `{ok:true,value:{commandId,result:{kind,text}}}`, where text is the business-result JSON. Callers check both ok and result.kind. Business-level failures retain kind=error and the specific text; authentication or routing errors return `{ok:false,error:{code,message}}`. The host records both command/run and command/done; top-level runId/projectRoot results let the existing session-index locate the run. Repeated deliveries retain the original requestId or operationId. Already accepted duplicate operations are deduplicated before revision is checked. A new operation with an outdated expectedRevision shows REVISION_CONFLICT; refreshing state preserves the draft.
 
-read section retains the original sections and adds checkSpecs (definitions), checkResults (results), and usage (traceable statistics). Lists contain 20 items per page; text bodies contain 16000 characters per page, with nextCursor indicating the next page's starting point. The page replaces content per page and provides backward pagination, so memory does not grow without bound during successive log reads. The details view-model is reviewViewModel(runDetail, section, page) in src/review/view-model.mjs, where runDetail comes from read/run and page comes from the selected section. The page source is client/review-panel.mjs; npm run build:client inlines it and the view-model into the distributed client.js, and validate-package checks the generated artifact and locale consistency.
-
-Historical tasks are read-only by default; reading does not recover/kick. Explicit import creates a new run and saves the source session/task/revision/meeting/preset, content digest, import time, and operator. Old evidence is marked imported/unknown, new execution supplies current results, and the original task remains unchanged. User choices are still submitted through the page or commands; model tools do not include decide.
+read section retains the original sections and adds checkSpecs (definitions), checkResults (results), and usage (traceable statistics). Lists contain 20 items per page; text bodies contain 16000 characters per page, with nextCursor indicating the next page's starting point. The page replaces content per page and provides backward pagination, so memory does not grow without bound during successive log reads. The details view-model is reviewViewModel(runDetail, section, page) in src/review/view-model.mjs, where runDetail comes from read/run and page comes from the selected section. The page source is client/review-panel.mjs, with request state, styles, and messages in small modules alongside it. npm run build:client inlines these modules and the view-model into the distributed client.js; validate-package checks the generated artifact and locale consistency.
 
 usage reads committed assistant/message.data.usage from child sessions, saves eventSeqs as provenance, and releases the observation immediately after use. Timing comes from execution.startedAt/endedAt and run.createdAt/updatedAt; rework comes from saved rework.count. Missing tokens, human handling time, and historical rework values use null/unknown. Reads support request cancellation; unloading cancels and waits for observations to release their resources. When reading usage, check completeness as well: missing values must not be treated as zero. Product defaults are standard@2, a 20-minute stage timeout, and two rework rounds. See [trial results](practice-results.md) for the public trial summary.
 
