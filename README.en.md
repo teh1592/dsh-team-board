@@ -14,7 +14,9 @@
 
 A review and development plugin for **DeepSeek Harness (DSH)**. Team Board connects requirements, independent reviews, decisions, implementation, machine checks, and targeted rework in a workflow you can resume.
 
-The Team Board tab provides a run management panel. Stage outputs, changes, check results, and logs are saved in the project so you can follow progress, understand decisions, and continue after an interruption. The panel, user commands, and model tools share the same service.
+Create a requirement in the Team Board conversation tab, then follow the discussion, tasks, and results. Stage outputs, changes, check results, and logs are saved in the project so you can follow progress and continue after an interruption. The panel, user commands, and model tools share the same service.
+
+The current version is **0.5.1-rc.2 (prerelease)**.
 
 ## Features
 
@@ -24,7 +26,7 @@ The Team Board tab provides a run management panel. Stage outputs, changes, chec
 - **Real machine checks:** run project-defined commands and record exit codes, test counts, logs, and code fingerprints. Detect checks made stale by changes.
 - **Targeted rework and revisions:** preserve finding IDs during verification and redo affected tasks using an impact list.
 - **Run management:** inspect role executions, findings, decisions, tasks, checks, reports, and paginated logs, and answer questions that need your input.
-- **History and usage:** historical tasks are read-only; explicit imports retain provenance. Usage includes session event sources, with missing values shown as unknown.
+- **Run history:** preserve requirement versions, questions, decisions, checks, and reports for on-demand review.
 
 ```mermaid
 flowchart LR
@@ -46,24 +48,24 @@ flowchart LR
 
 ![Architecture of the review and development plugin: entry points, ReviewService, background orchestration, core logic, DSH adapters, and persistent runs](docs/images/review-plugin-architecture.png)
 
-This design diagram uses Chinese labels. The [English architecture guide](docs/en/architecture.md) explains the modules and current 0.5.0 state rules. The quick workflow skips the initial independent reviews shown in the diagram.
+This design diagram uses Chinese labels. The [English architecture guide](docs/en/architecture.md) explains the modules and state rules. The quick workflow skips the initial independent reviews shown in the diagram.
 
 ## Requirements
 
 - DeepSeek Harness: verified with **0.2.2-rc.1**.
 - Node.js: version 22 or newer. Host integration was verified with **24.22.3**.
 - New review runs require DSH Agent, filesystem, working-directory, and subagents services, with at least one fresh-context provider. The official `spawn` provider is recommended. Implementation checks also need subprocess support.
-- Session querying supports interrupted child-result recovery and usage provenance. The legacy team board, meetings, and historical imports additionally require official **Agent Teams**.
+- Session querying supports recovery of interrupted child results.
 - Model configuration comes from DSH. This repository contains no model accounts or API keys.
 
-**The Team Board switch and the official Agent Teams switch are separate.** The new `review/develop` workflow can run with subagents alone; full legacy team features also need Agent Teams. DSH manages its official components, while the plugin manager resolves npm dependencies. See [dependencies and setup](docs/en/dependencies.md).
+Turn on the Team Board switch after installation. See [dependencies and setup](docs/en/dependencies.md) for the minimum environment and setup steps.
 
 ## Installation
 
 ### Install a release
 
-1. Check the [dependency guide](docs/en/dependencies.md) to confirm subagents, a fresh-context `spawn` provider, and the required host services are enabled. Enable official Agent Teams as well if you need legacy team features.
-2. Download `local-team-board-0.5.0.tgz` from [Releases](https://github.com/teh1592/dsh-team-board/releases).
+1. Follow the [dependency guide](docs/en/dependencies.md) to enable subagents and `spawn`, plus command execution for development tasks.
+2. Download `local-team-board-0.5.1-rc.2.tgz` from the [v0.5.1-rc.2 prerelease](https://github.com/teh1592/dsh-team-board/releases/tag/v0.5.1-rc.2).
 3. In DSH, ask the plugin manager to run `install_bundle`, using the absolute local archive path as `target`. You can also use the Plugin Manager installation interface.
 4. Confirm the result is `application: applied` and review any warnings.
 5. Open the Team Board conversation tab, enable the plugin switch, and use the review and development panel.
@@ -71,7 +73,7 @@ This design diagram uses Chinese labels. The [English architecture guide](docs/e
 Example request to DSH:
 
 ```text
-Install C:/Downloads/local-team-board-0.5.0.tgz using plugin_manager and check the installation result.
+Install C:/Downloads/local-team-board-0.5.1-rc.2.tgz using plugin_manager and check the installation result.
 ```
 
 The plugin switch starts off. You choose when to enable it.
@@ -79,7 +81,7 @@ The plugin switch starts off. You choose when to enable it.
 ### Install from source
 
 ```bash
-git clone https://github.com/teh1592/dsh-team-board.git
+git clone --branch v0.5.1-rc.2 https://github.com/teh1592/dsh-team-board.git
 cd dsh-team-board
 npm ci --ignore-scripts
 npm run build:client
@@ -89,7 +91,7 @@ Then use DSH's `plugin_manager` to install the absolute path of this directory. 
 
 ## Getting started
 
-Choose a workflow in the panel, enter a requirement, and start a run. A model can also call `review_start`:
+Create or select a task in the Team Board header. Overview shows current work and pending choices, Discussion presents findings and decisions, Tasks shows implementation and dependencies, and Results presents checks and reports. Use New requirement to enter requirements, select a workflow, and start. A model can also call `review_start`:
 
 ```json
 {
@@ -147,7 +149,10 @@ Adjust `argv` to the actual project command. `develop` mode needs configured che
 
 ## Development and tests
 
+Use the `main` branch for development:
+
 ```bash
+git switch main
 npm ci --ignore-scripts
 npm test
 npm run typecheck
@@ -156,14 +161,14 @@ npm run validate-package
 npm pack --ignore-scripts
 ```
 
-The test script enumerates files to avoid platform differences in directory handling and shell glob expansion. After changing Client components or the view model, regenerate and commit `client.js`.
+Install dependencies before running tests. The test entry checks `ajv` and `zod`; if either is missing, it prints `npm ci --ignore-scripts` and exits with code 1. The script enumerates files to avoid platform differences in directory handling and shell glob expansion. After changing Client components or the view model, regenerate and commit `client.js`.
 
 Before publication, the product suite passed **1591/1591** tests. Real DSH integration covered commands, session indexing, pagination, revision conflicts, cancellation cleanup, and installed interfaces. A separate 15-task pilot passed 14 cases. See the [pilot results](docs/en/practice-results.md) for the failure, missing usage, and comparison conditions.
 
 ## Documentation
 
-- [Dependencies and setup](docs/en/dependencies.md): subagents, spawn, Agent Teams, and the two switches.
-- [Operations](docs/en/operations.md): start, check, pause, recover, revise, and import history.
+- [Dependencies and setup](docs/en/dependencies.md): minimum requirements and setup steps.
+- [Operations](docs/en/operations.md): start, check, pause, recover, and revise requirements.
 - [Architecture](docs/en/architecture.md): state protocol, modules, and resource lifecycles.
 - [Compatibility and verification](docs/en/compatibility.md): verified environments and limits.
 - [Pilot results](docs/en/practice-results.md): when to choose single-agent, quick, or standard.
